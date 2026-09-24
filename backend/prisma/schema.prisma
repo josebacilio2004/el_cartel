@@ -1,0 +1,115 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum BarberStatus {
+  ACTIVE
+  BREAK
+  OFFLINE
+}
+
+enum TicketStatus {
+  WAITING
+  CALLING
+  IN_CHAIR
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AppointmentStatus {
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Barber {
+  id           String         @id @default(uuid())
+  name         String
+  chairNumber  Int            @map("chair_number")
+  photoUrl     String?        @map("photo_url")
+  specialty    String?        @default("Master Barber")
+  status       BarberStatus   @default(ACTIVE)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  tickets      Ticket[]
+  appointments Appointment[]
+
+  @@map("barbers")
+}
+
+model Service {
+  id              String         @id @default(uuid())
+  name            String
+  description     String?
+  durationMinutes Int            @default(30) @map("duration_minutes")
+  price           Decimal        @db.Decimal(10, 2)
+  category        String         @default("HAIRCUT")
+  isActive        Boolean        @default(true) @map("is_active")
+  createdAt       DateTime       @default(now()) @map("created_at")
+
+  tickets         Ticket[]
+  appointments    Appointment[]
+
+  @@map("services")
+}
+
+model Ticket {
+  id                   String        @id @default(uuid())
+  ticketCode           String        @map("ticket_code") // Ej. B-01, B-14
+  clientName           String        @map("client_name")
+  clientPhone          String        @map("client_phone")
+  serviceId            String        @map("service_id")
+  service              Service       @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  barberId             String?       @map("barber_id")
+  barber               Barber?       @relation(fields: [barberId], references: [id], onDelete: SetNull)
+  status               TicketStatus  @default(WAITING)
+  positionInQueue      Int           @default(1) @map("position_in_queue")
+  estimatedWaitMinutes Int           @default(15) @map("estimated_wait_minutes")
+  calledAt             DateTime?     @map("called_at")
+  startedAt            DateTime?     @map("started_at")
+  completedAt          DateTime?     @map("completed_at")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@map("tickets")
+}
+
+model Appointment {
+  id              String            @id @default(uuid())
+  clientName      String            @map("client_name")
+  clientPhone     String            @map("client_phone")
+  barberId        String            @map("barber_id")
+  barber          Barber            @relation(fields: [barberId], references: [id], onDelete: Cascade)
+  serviceId       String            @map("service_id")
+  service         Service           @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  startTime       DateTime          @map("start_time")
+  endTime         DateTime          @map("end_time")
+  status          AppointmentStatus @default(CONFIRMED)
+  isRegularClient Boolean           @default(true) @map("is_regular_client")
+  notes           String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  @@index([barberId, startTime])
+  @@map("appointments")
+}
+
+model ShopSetting {
+  id                    String   @id @default(uuid())
+  shopName              String   @default("Barber Pro Atelier") @map("shop_name")
+  isWeekendMode         Boolean  @default(false) @map("is_weekend_mode")
+  maxQueueCapacity      Int      @default(20) @map("max_queue_capacity")
+  bufferMinutesBetweenCuts Int   @default(5) @map("buffer_minutes_between_cuts")
+  autoPauseQueue        Boolean  @default(false) @map("auto_pause_queue")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("shop_settings")
+}

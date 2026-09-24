@@ -1,0 +1,11 @@
+import { Router } from 'express';
+import { queueController } from '../controllers/queue.controller';
+
+export const queueRouter = Router();
+
+queueRouter.get('/status', (req, res) => queueController.getStatus(req, res));
+queueRouter.post('/ticket', (req, res) => queueController.createTicket(req, res));
+queueRouter.post('/call-next', (req, res) => queueController.callNext(req, res));
+queueRouter.post('/no-show', (req, res) => queueController.markNoShow(req, res));
+queueRouter.post('/delay', (req, res) => queueController.delayTicket(req, res));
+queueRouter.get('/stream', (req, res) => queueController.streamEvents(req, res));

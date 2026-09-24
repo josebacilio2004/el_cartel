@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #0E1116;
+    color: #E1E2E9;
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Glassmorphism custom classes */
+.glass-panel {
+  background: rgba(24, 28, 36, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid #2B313E;
+}
+
+.glass-panel-elevated {
+  background: rgba(34, 39, 51, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(217, 155, 38, 0.35);
+  box-shadow: 0 0 24px -4px rgba(217, 155, 38, 0.18);
+}
+
+.glass-pill {
+  background: rgba(34, 39, 51, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid #2B313E;
+}
+
+/* Custom glowing badge */
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(0.98); }
+}
+
+.animate-pulse-subtle {
+  animation: pulse-subtle 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

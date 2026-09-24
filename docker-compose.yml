@@ -1,0 +1,50 @@
+services:
+  postgres_db:
+    image: postgres:16-alpine
+    container_name: barberpro_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: barberadmin
+      POSTGRES_PASSWORD: barbersecretpassword
+      POSTGRES_DB: barberpro_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - barberpro_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U barberadmin -d barberpro_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: barberpro_backend
+    restart: always
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgresql://barberadmin:barbersecretpassword@postgres_db:5432/barberpro_db?schema=public
+      NODE_ENV: development
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres_db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: barberpro_frontend
+    restart: always
+    environment:
+      VITE_API_URL: http://localhost:4000
+    ports:
+      - "3030:80"
+    depends_on:
+      - backend
+
+volumes:
+  barberpro_pgdata:
