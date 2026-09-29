@@ -5,6 +5,23 @@ export interface Barber {
   photoUrl?: string;
   specialty?: string;
   status: 'ACTIVE' | 'BREAK' | 'OFFLINE';
+  pin?: string;
+  todayCutsCount?: number;
+  todayEarnings?: number;
+}
+
+export interface SaleTicket {
+  id: string;
+  ticketCode: string;
+  clientName: string;
+  clientPhone: string;
+  serviceName: string;
+  barberName: string;
+  chairNumber: number;
+  amount: number;
+  durationMinutes: number;
+  paymentMethod: 'EFECTIVO' | 'YAPE' | 'PLIN' | 'TARJETA';
+  createdAt: string;
 }
 
 export interface Service {

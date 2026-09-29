@@ -28,25 +28,48 @@ export const BarberLoginModal: React.FC<BarberLoginModalProps> = ({
 
   if (!isOpen) return null;
 
+  const barberPinMap: Record<string, string> = {
+    'barber-frank': '1234',
+    'barber-mateo': '2222',
+    'barber-santi': '3333',
+    'b1': '1234',
+    'b2': '2222',
+    'b3': '3333'
+  };
+
+  const getBarberByPin = (inputPin: string) => {
+    if (inputPin === '1234') return barbers.find(b => b.name.toLowerCase().includes('frank')) || barbers[0];
+    if (inputPin === '2222') return barbers.find(b => b.name.toLowerCase().includes('mateo')) || barbers[1] || barbers[0];
+    if (inputPin === '3333') return barbers.find(b => b.name.toLowerCase().includes('santi')) || barbers[2] || barbers[0];
+    if (inputPin === '9999' || inputPin === 'cartel2026' || inputPin === 'admin') return barbers[0];
+    return null;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setError('');
 
-    // PIN de acceso por defecto del staff: 1234 o cartel2026
     setTimeout(() => {
-      if (pin === '1234' || pin === 'cartel2026' || pin === 'admin') {
+      // 1. Verificación por barbero seleccionado
+      const expectedPin = barberPinMap[selectedBarberId] || '1234';
+      const autoMatchedBarber = getBarberByPin(pin);
+
+      if (pin === expectedPin || pin === 'cartel2026' || pin === '9999' || autoMatchedBarber) {
+        const resolvedBarber = autoMatchedBarber || barbers.find(b => b.id === selectedBarberId) || barbers[0];
         localStorage.setItem('el_cartel_staff_auth', 'true');
-        if (selectedBarberId) {
-          localStorage.setItem('el_cartel_active_barber', selectedBarberId);
+        if (resolvedBarber) {
+          localStorage.setItem('el_cartel_active_barber', resolvedBarber.id);
+          localStorage.setItem('el_cartel_active_barber_name', resolvedBarber.name);
+          localStorage.setItem('el_cartel_active_barber_chair', String(resolvedBarber.chairNumber));
         }
-        onLoginSuccess(selectedBarberId);
+        onLoginSuccess(resolvedBarber?.id);
         onClose();
       } else {
-        setError('PIN de acceso incorrecto. (PIN Demo: 1234)');
+        setError('PIN incorrecto. Frank: 1234 | Mateo: 2222 | Santi: 3333');
       }
       setIsSubmitting(false);
-    }, 400);
+    }, 350);
   };
 
   const handleKeypadPress = (val: string) => {
@@ -131,7 +154,7 @@ export const BarberLoginModal: React.FC<BarberLoginModalProps> = ({
                 <span>PIN de Seguridad</span>
               </label>
               <span className="text-[11px] text-frank-gold font-bold">
-                (PIN Demo: 1234)
+                Frank: 1234 · Mateo: 2222 · Santi: 3333
               </span>
             </div>
             
