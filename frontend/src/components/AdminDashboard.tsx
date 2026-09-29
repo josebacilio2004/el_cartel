@@ -54,7 +54,7 @@ import {
   Legend
 } from 'recharts';
 import { QueueStatus, Barber, Service, Ticket, ClientRecord, SaleTicket } from '../types';
-import { fetchClients, createTicket } from '../services/api';
+import { fetchClients, createTicket, updateClientInBackend } from '../services/api';
 
 interface AdminDashboardProps {
   queueStatus: QueueStatus | null;
@@ -414,15 +414,54 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!clientForm.name.trim() || !clientForm.phone.trim()) return;
 
     if (editingClient) {
-      setClients(prev => prev.map(c => c.id === editingClient.id ? {
+      const trimmedName = clientForm.name.trim();
+      const trimmedPhone = clientForm.phone.trim();
+      const trimmedNotes = clientForm.notes.trim();
+
+      const updatedClients = clients.map(c => c.id === editingClient.id ? {
         ...c,
-        name: clientForm.name,
-        phone: clientForm.phone,
-        email: clientForm.email,
-        notes: clientForm.notes,
+        name: trimmedName,
+        phone: trimmedPhone,
+        email: clientForm.email.trim(),
+        notes: trimmedNotes,
         isVIP: clientForm.isVIP
-      } : c));
-      showNotification(`Cliente "${clientForm.name}" actualizado`);
+      } : c);
+      setClients(updatedClients);
+      localStorage.setItem('el_cartel_clients_list', JSON.stringify(updatedClients));
+
+      // 1. Sincronizar inmediatamente con el cliente en sillón si es la misma persona
+      if (
+        chairClient && (
+          chairClient.clientName.trim().toLowerCase() === editingClient.name.trim().toLowerCase() ||
+          chairClient.clientName.trim().toLowerCase() === trimmedName.toLowerCase()
+        )
+      ) {
+        setChairClient(prev => prev ? {
+          ...prev,
+          clientName: trimmedName,
+          clientPhone: trimmedPhone
+        } : null);
+      }
+
+      // 2. Sincronizar inmediatamente con todos los turnos en la cola unificada
+      setUnifiedQueue(prev => prev.map(item => {
+        if (
+          item.clientName.trim().toLowerCase() === editingClient.name.trim().toLowerCase() ||
+          item.clientName.trim().toLowerCase() === trimmedName.toLowerCase()
+        ) {
+          return {
+            ...item,
+            clientName: trimmedName,
+            clientPhone: trimmedPhone
+          };
+        }
+        return item;
+      }));
+
+      // 3. Sincronizar con el backend / base de datos PostgreSQL
+      updateClientInBackend(trimmedName, trimmedPhone, trimmedNotes);
+
+      showNotification(`Cliente "${trimmedName}" actualizado (Celular: ${trimmedPhone})`);
     } else {
       const newClient: ClientRecord = {
         id: `cli-${Date.now()}`,
@@ -486,6 +525,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // ----------------------------------------------------
   // SILLONES & TURNOS EN VIVO (UNIFICADO) Y TICKET DE VENTA
   // ----------------------------------------------------
+  // Obtiene el teléfono más actualizado del directorio de clientes en tiempo real
+  const getClientCurrentPhone = (clientName: string, fallbackPhone: string = '') => {
+    if (!clientName) return fallbackPhone;
+    const found = clients.find(c => c.name.trim().toLowerCase() === clientName.trim().toLowerCase());
+    return (found && found.phone && found.phone.trim()) ? found.phone.trim() : fallbackPhone;
+  };
+
   // Cliente actualmente en el sillón del barbero activo
   const [chairClient, setChairClient] = useState<{
     ticketCode: string;
@@ -495,6 +541,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     servicePrice: number;
     startedAt: number;
   } | null>(() => {
+    const saved = localStorage.getItem('el_cartel_chair_client');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { }
+    }
     return {
       ticketCode: 'C-01',
       clientName: 'Carlos Mendoza',
@@ -504,6 +554,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       startedAt: Date.now() - 22 * 60 * 1000 // 22 minutos transcurridos
     };
   });
+
+  useEffect(() => {
+    if (chairClient) {
+      localStorage.setItem('el_cartel_chair_client', JSON.stringify(chairClient));
+    }
+  }, [chairClient]);
 
   // Cronómetro del sillón activo
   const [timerSeconds, setTimerSeconds] = useState(1320); // 22 min demo
@@ -623,7 +679,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       id: `tx-${Date.now()}`,
       ticketCode: chairClient.ticketCode,
       clientName: chairClient.clientName,
-      clientPhone: chairClient.clientPhone,
+      clientPhone: getClientCurrentPhone(chairClient.clientName, chairClient.clientPhone),
       serviceName: chairClient.serviceName,
       barberName: activeBarber.name,
       chairNumber: activeBarber.chairNumber,
@@ -1116,12 +1172,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <div className="text-sm text-[#A0A6B8] flex items-center gap-4">
                       <span>✂️ {chairClient.serviceName}</span>
                       <span className="text-secondary font-bold font-mono">S/. {chairClient.servicePrice.toFixed(2)}</span>
-                      <span>📞 {chairClient.clientPhone}</span>
+                      <span>📞 {getClientCurrentPhone(chairClient.clientName, chairClient.clientPhone)}</span>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 pt-2">
                       <button
-                        onClick={() => sendWhatsAppChairReady(chairClient.clientName, chairClient.clientPhone, activeBarber.name, activeBarber.chairNumber)}
+                        onClick={() => {
+                          const livePhone = getClientCurrentPhone(chairClient.clientName, chairClient.clientPhone);
+                          sendWhatsAppChairReady(chairClient.clientName, livePhone, activeBarber.name, activeBarber.chairNumber);
+                        }}
                         className="px-3 py-1.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1.5"
                       >
                         <MessageSquare className="w-3.5 h-3.5" />
@@ -1198,7 +1257,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </span>
                           </div>
                           <div className="text-xs text-[#7F8698] mt-0.5">
-                            {item.serviceName} · <span className="text-secondary font-semibold">S/. {item.servicePrice.toFixed(2)}</span> · Barbero: {item.barberName}
+                            {item.serviceName} · <span className="text-secondary font-semibold">S/. {item.servicePrice.toFixed(2)}</span> · 📞 {getClientCurrentPhone(item.clientName, item.clientPhone)} · Barbero: {item.barberName}
                           </div>
                         </div>
                       </div>
@@ -1207,7 +1266,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <div className="flex items-center gap-2">
                         {/* WhatsApp con Ticket */}
                         <button
-                          onClick={() => sendWhatsAppTicket(item.clientName, item.clientPhone, item.ticketCode, item.position, item.estimatedWaitMin)}
+                          onClick={() => {
+                            const livePhone = getClientCurrentPhone(item.clientName, item.clientPhone);
+                            sendWhatsAppTicket(item.clientName, livePhone, item.ticketCode, item.position, item.estimatedWaitMin);
+                          }}
                           className="p-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-xs font-bold transition-all"
                           title="Enviar Ticket y Posición por WhatsApp"
                         >

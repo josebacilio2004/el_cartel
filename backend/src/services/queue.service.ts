@@ -344,6 +344,28 @@ export class QueueService {
 
     return Array.from(clientMap.values());
   }
+
+  /**
+   * Actualiza el teléfono de un cliente en todos sus tickets (historial y activos)
+   */
+  public async updateClient(name: string, phone: string, notes?: string) {
+    await prisma.ticket.updateMany({
+      where: {
+        clientName: {
+          equals: name.trim(),
+          mode: 'insensitive'
+        }
+      },
+      data: {
+        clientPhone: phone.trim()
+      }
+    });
+
+    const queueStatus = await this.getQueueStatus();
+    realtimeService.broadcast('QUEUE_UPDATED', queueStatus);
+
+    return { success: true, message: `Teléfono de ${name} actualizado a ${phone}` };
+  }
 }
 
 export const queueService = new QueueService();

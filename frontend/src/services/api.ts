@@ -119,6 +119,20 @@ export async function fetchClients(): Promise<ClientRecord[]> {
   ];
 }
 
+export async function updateClientInBackend(name: string, phone: string, notes?: string) {
+  try {
+    const res = await fetch(`${API_BASE}/api/queue/clients`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, phone, notes })
+    });
+    if (!res.ok) throw new Error('Error al actualizar cliente');
+    return await res.json();
+  } catch (err) {
+    console.warn('Backend update client offline fallback:', err);
+  }
+}
+
 export async function createTicket(data: {
   clientName: string;
   clientPhone: string;

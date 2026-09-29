@@ -87,6 +87,19 @@ export class QueueController {
       res.status(500).json({ error: error.message });
     }
   }
+
+  public async updateClient(req: Request, res: Response) {
+    try {
+      const { name, phone, notes } = req.body;
+      if (!name || !phone) {
+        return res.status(400).json({ error: 'name y phone son requeridos' });
+      }
+      const result = await queueService.updateClient(name, phone, notes);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
 }
 
 export const queueController = new QueueController();
