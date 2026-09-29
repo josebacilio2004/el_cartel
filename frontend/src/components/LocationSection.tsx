@@ -1,113 +1,141 @@
 import React from 'react';
-import { MapPin, Phone, Clock, ArrowRight, Instagram, Facebook } from 'lucide-react';
+import { MapPin, Phone, Clock, ArrowRight, Instagram, Facebook, ExternalLink, Navigation } from 'lucide-react';
 
 interface LocationSectionProps {
   onOpenTakeTicket: () => void;
 }
 
 export const LocationSection: React.FC<LocationSectionProps> = ({ onOpenTakeTicket }) => {
+  const mapsUrl = 'https://maps.app.goo.gl/UtaL5dQXf8jh2FEE8';
+  const coords = { lat: -12.064542, lng: -75.2128856 };
+
   return (
-    <section id="contacto" className="w-full py-24 bg-[#0D0E11] border-t border-[#1C1F2A]">
+    <section id="contacto" className="w-full py-24 bg-[#0D0E11] border-t border-[#1C1F2A] relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-          {/* Left Column: Dark Stylized Map matching landing.png */}
-          <div className="lg:col-span-5 relative w-full h-[380px] sm:h-[440px] bg-[#14161E] border border-[#232733] overflow-hidden select-none">
-            {/* Dark Map Vector Simulation (Grayscale blueprint map) */}
-            <svg
-              className="w-full h-full object-cover filter brightness-75 contrast-125"
-              viewBox="0 0 500 400"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <rect width="500" height="400" fill="#111319" />
-              {/* Streets network pattern */}
-              <g stroke="#232733" strokeWidth="2.5" opacity="0.8">
-                <line x1="0" y1="80" x2="500" y2="120" />
-                <line x1="0" y1="160" x2="500" y2="190" />
-                <line x1="0" y1="280" x2="500" y2="270" />
-                <line x1="0" y1="340" x2="500" y2="360" />
-                <line x1="80" y1="0" x2="120" y2="400" strokeWidth="3.5" />
-                <line x1="180" y1="0" x2="220" y2="400" />
-                <line x1="260" y1="0" x2="240" y2="400" strokeWidth="4.5" stroke="#2B313E" />
-                <line x1="340" y1="0" x2="380" y2="400" />
-                <line x1="420" y1="0" x2="450" y2="400" />
-              </g>
-              <g stroke="#1A1C23" strokeWidth="1" opacity="0.6">
-                <line x1="0" y1="40" x2="500" y2="40" />
-                <line x1="0" y1="220" x2="500" y2="220" />
-                <line x1="140" y1="0" x2="140" y2="400" />
-                <line x1="300" y1="0" x2="300" y2="400" />
-              </g>
-              {/* City blocks */}
-              <rect x="90" y="90" width="80" height="60" fill="#161822" rx="4" />
-              <rect x="190" y="95" width="60" height="65" fill="#161822" rx="4" />
-              <rect x="270" y="130" width="60" height="50" fill="#181B26" rx="4" />
-              <rect x="190" y="200" width="60" height="65" fill="#161822" rx="4" />
-              <rect x="90" y="200" width="80" height="70" fill="#181B26" rx="4" />
-              <rect x="270" y="200" width="60" height="60" fill="#161822" rx="4" />
-            </svg>
+          
+          {/* Left Column: Interactive Map with Custom Pin Logo */}
+          <div className="lg:col-span-6 relative w-full h-[400px] sm:h-[460px] bg-[#14161E] border border-[#232733] rounded-3xl overflow-hidden shadow-2xl group">
+            {/* Embedded Google Maps */}
+            <iframe
+              title="Ubicación El Cartel Barbershop"
+              src={`https://maps.google.com/maps?q=${coords.lat},${coords.lng}&hl=es&z=18&output=embed`}
+              className="w-full h-full border-0 filter contrast-125 brightness-90 opacity-80 group-hover:opacity-100 transition-opacity duration-500"
+              loading="lazy"
+              allowFullScreen
+            />
 
-            {/* Glowing Map Pin in Orange matching landing.png */}
-            <div className="absolute top-[48%] left-[46%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center">
+            {/* Custom Overlay Pin with El Cartel Logo */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none">
               <div className="relative">
-                <div className="w-10 h-10 rounded-full bg-frank-orange/20 animate-ping absolute inset-0" />
-                <div className="w-10 h-10 rounded-full bg-frank-orange flex items-center justify-center text-white shadow-[0_0_24px_rgba(196,98,45,0.8)] relative z-10 border-2 border-white">
-                  <MapPin className="w-5 h-5 fill-white text-frank-orange" />
+                {/* Glowing pulsating rings */}
+                <div className="w-16 h-16 rounded-full bg-frank-orange/30 animate-ping absolute inset-0" />
+                <div className="w-16 h-16 rounded-full bg-black/80 backdrop-blur-md border-2 border-frank-orange flex items-center justify-center p-2 shadow-[0_0_30px_rgba(196,98,45,0.8)] relative z-10">
+                  <img
+                    src="./el_cartel_.png"
+                    alt="El Cartel Logo Pin"
+                    className="w-full h-full object-contain filter drop-shadow"
+                    onError={(e) => {
+                      // Fallback to text icon if image fails
+                      (e.target as HTMLElement).style.display = 'none';
+                    }}
+                  />
                 </div>
               </div>
-              <div className="mt-2 bg-[#0D0E11]/90 border border-[#232733] px-3 py-1 rounded text-[10px] font-bold text-white uppercase tracking-wider backdrop-blur-md shadow-lg">
-                El Cartel Barbershop · San Miguel
+
+              {/* Pin Tag */}
+              <div className="mt-2.5 bg-[#0D0E11]/95 border border-frank-orange/60 px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-2xl backdrop-blur-md">
+                <span className="w-2 h-2 rounded-full bg-frank-orange animate-pulse" />
+                <span className="text-[11px] font-black text-white uppercase tracking-wider">
+                  EL CARTEL BARBERSHOP
+                </span>
               </div>
             </div>
+
+            {/* Floating button to open Google Maps */}
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="absolute bottom-4 right-4 bg-[#0F1118]/90 hover:bg-frank-orange text-white text-xs font-bold px-4 py-2.5 rounded-xl border border-[#2B313E] hover:border-frank-orange flex items-center gap-2 backdrop-blur-md transition-all shadow-xl group/btn"
+            >
+              <Navigation className="w-4 h-4 text-frank-orange group-hover/btn:text-white" />
+              <span>Cómo Llegar en Google Maps</span>
+              <ExternalLink className="w-3.5 h-3.5 opacity-70" />
+            </a>
           </div>
 
-          {/* Right Column: Contact & Passion info matching landing.png */}
-          <div className="lg:col-span-7 flex flex-col justify-between space-y-8">
+          {/* Right Column: Contact & Passion info */}
+          <div className="lg:col-span-6 flex flex-col justify-between space-y-8">
             <div>
               <span className="text-xs uppercase font-extrabold tracking-[0.25em] text-frank-gold block mb-2 font-sans">
-                VISÍTANOS
+                VISÍTANOS EN NUESTRO LOCAL
               </span>
-              <h2 className="font-display text-5xl sm:text-6xl text-white tracking-wide leading-none mb-8">
+              <h2 className="font-display text-4xl sm:text-5xl text-white tracking-wide leading-none mb-8">
                 TU ESTILO, NUESTRA PASIÓN
               </h2>
 
               {/* Info Items List */}
               <div className="space-y-5 text-sm">
                 <div className="flex items-start gap-4">
-                  <MapPin className="w-5 h-5 text-frank-orange shrink-0 mt-0.5" />
+                  <div className="w-10 h-10 rounded-xl bg-frank-orange/15 border border-frank-orange/30 flex items-center justify-center shrink-0">
+                    <MapPin className="w-5 h-5 text-frank-orange" />
+                  </div>
                   <div>
-                    <p className="text-white font-bold leading-tight">Av. Los Héroes 1234, San Miguel</p>
-                    <p className="text-[#8A8F9E] text-xs mt-0.5">Lima, Perú</p>
+                    <p className="text-white font-bold leading-tight text-base">Barber Studio Zona VIP · EL CARTEL</p>
+                    <p className="text-[#8A8F9E] text-xs mt-1">
+                      Punto exacto GPS: -12.064542, -75.2128856 · Junín / Perú
+                    </p>
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-frank-orange hover:underline text-xs font-bold inline-flex items-center gap-1 mt-1.5"
+                    >
+                      <span>Ver enlace directo en Google Maps</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-4">
-                  <Phone className="w-5 h-5 text-frank-orange shrink-0" />
-                  <p className="text-white font-bold leading-tight">+51 987 654 321</p>
+                  <div className="w-10 h-10 rounded-xl bg-frank-orange/15 border border-frank-orange/30 flex items-center justify-center shrink-0">
+                    <Phone className="w-5 h-5 text-frank-orange" />
+                  </div>
+                  <div>
+                    <p className="text-white font-bold leading-tight text-base">+51 987 654 321</p>
+                    <p className="text-[#8A8F9E] text-xs mt-0.5">Atención WhatsApp y consultas directas</p>
+                  </div>
                 </div>
 
                 <div className="flex items-start gap-4">
-                  <Clock className="w-5 h-5 text-frank-orange shrink-0 mt-0.5" />
+                  <div className="w-10 h-10 rounded-xl bg-frank-orange/15 border border-frank-orange/30 flex items-center justify-center shrink-0">
+                    <Clock className="w-5 h-5 text-frank-orange" />
+                  </div>
                   <div>
-                    <p className="text-white font-bold leading-tight">Lun - Sáb: 10:00 AM - 9:00 PM</p>
-                    <p className="text-[#8A8F9E] text-xs mt-0.5">Dom: 11:00 AM - 6:00 PM</p>
+                    <p className="text-white font-bold leading-tight text-base">Lunes a Sábado: 10:00 AM - 9:00 PM</p>
+                    <p className="text-[#8A8F9E] text-xs mt-0.5">Domingos: 11:00 AM - 6:00 PM (Turnos y Citas)</p>
                   </div>
                 </div>
               </div>
             </div>
 
             {/* Reserva tu Cita Box */}
-            <div className="pt-6 border-t border-[#232733]">
-              <h3 className="font-sans text-sm font-extrabold uppercase tracking-wider text-white mb-1">
-                RESERVA TU CITA
-              </h3>
-              <p className="text-xs text-[#8A8F9E] mb-4">
-                Evita esperas y asegura tu horario.
-              </p>
+            <div className="pt-6 border-t border-[#232733] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="font-sans text-sm font-extrabold uppercase tracking-wider text-white mb-1">
+                  RESERVA TU CITA O TURNO VIRTUAL
+                </h3>
+                <p className="text-xs text-[#8A8F9E]">
+                  Evita esperas en sillón y asegura tu horario de atención con tu barbero favorito.
+                </p>
+              </div>
+
               <button
                 onClick={onOpenTakeTicket}
-                className="w-full sm:w-auto h-12 px-8 rounded bg-frank-orange hover:bg-frank-orange-hover text-white font-extrabold uppercase text-xs tracking-widest flex items-center justify-center gap-3 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-[0_4px_20px_rgba(196,98,45,0.35)]"
+                className="h-12 px-8 rounded-xl bg-gradient-to-r from-frank-orange to-[#A84F22] hover:brightness-110 text-white font-extrabold uppercase text-xs tracking-widest flex items-center justify-center gap-3 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg shadow-frank-orange/30 shrink-0"
               >
-                <span>RESERVAR CITA</span>
+                <span>RESERVAR AHORA</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -115,7 +143,7 @@ export const LocationSection: React.FC<LocationSectionProps> = ({ onOpenTakeTick
             {/* SÍGUENOS Socials */}
             <div>
               <span className="text-[11px] uppercase font-bold tracking-[0.2em] text-[#8A8F9E] block mb-3">
-                SÍGUENOS
+                SÍGUENOS EN REDES OFICIALES
               </span>
               <div className="flex items-center gap-4 text-[#8A8F9E]">
                 <a href="#instagram" className="hover:text-frank-orange transition-colors" title="Instagram">
@@ -124,14 +152,7 @@ export const LocationSection: React.FC<LocationSectionProps> = ({ onOpenTakeTick
                 <a href="#facebook" className="hover:text-frank-orange transition-colors" title="Facebook">
                   <Facebook className="w-5 h-5" />
                 </a>
-                <a href="#tiktok" className="hover:text-frank-orange transition-colors" title="TikTok">
-                  {/* TikTok custom icon */}
-                  <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
-                    <path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64c.298-.002.595.042.88.13V9.4a6.33 6.33 0 0 0-1-.08A6.34 6.34 0 0 0 3 15.66a6.34 6.34 0 0 0 10.82 4.5 6.3 6.3 0 0 0 1.86-4.51v-6.6a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-.86-.48z"/>
-                  </svg>
-                </a>
                 <a href="https://wa.me/51987654321" target="_blank" rel="noreferrer" className="hover:text-frank-orange transition-colors" title="WhatsApp">
-                  {/* WhatsApp custom icon */}
                   <svg className="w-5 h-5 fill-current" viewBox="0 0 24 24">
                     <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.3 20.62C8.75 21.41 10.38 21.83 12.04 21.83C17.5 21.83 21.95 17.38 21.95 11.92C21.95 9.27 20.92 6.78 19.05 4.91C17.18 3.03 14.69 2 12.04 2M12.05 3.67C14.25 3.67 16.31 4.53 17.87 6.09C19.42 7.65 20.28 9.72 20.28 11.92C20.28 16.46 16.58 20.15 12.04 20.15C10.56 20.15 9.11 19.76 7.85 19.01L7.55 18.83L4.43 19.65L5.26 16.61L5.06 16.29C4.24 14.99 3.8 13.47 3.8 11.91C3.81 7.37 7.5 3.67 12.05 3.67Z"/>
                   </svg>
@@ -139,6 +160,7 @@ export const LocationSection: React.FC<LocationSectionProps> = ({ onOpenTakeTick
               </div>
             </div>
           </div>
+
         </div>
       </div>
     </section>

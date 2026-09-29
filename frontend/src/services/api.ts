@@ -1,4 +1,5 @@
 import { QueueStatus, Barber, Service, Ticket, ClientRecord, AppointmentRecord } from '../types';
+import { generateUniqueTicketCode } from '../utils/ticketHelper';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -151,7 +152,11 @@ export async function createTicket(data: {
       })
     });
     if (res.ok) {
-      return await res.json();
+      const ticketResult: Ticket = await res.json();
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cartel_ticket_created', { detail: ticketResult }));
+      }
+      return ticketResult;
     }
     const errData = await res.json().catch(() => ({}));
     if (errData && errData.error && errData.error !== 'Datos inválidos') {
@@ -161,20 +166,32 @@ export async function createTicket(data: {
     console.warn('Backend sincronizando o modo demo:', err);
   }
 
-  // Fallback demo ticket para garantizar flujo 100% interactivo
-  const randomSeq = Math.floor(Math.random() * 80) + 10;
-  return {
+  // Fallback demo ticket garantizando código único sin duplicados
+  let existingList: any[] = [];
+  try {
+    const raw = localStorage.getItem('el_cartel_unified_queue');
+    if (raw) existingList = JSON.parse(raw);
+  } catch (e) {}
+
+  const uniqueCode = generateUniqueTicketCode(existingList);
+  const fallbackTicket: Ticket = {
     id: `ticket-local-${Date.now()}`,
-    ticketCode: `C-${randomSeq}`,
+    ticketCode: uniqueCode,
     clientName: data.clientName,
     clientPhone: data.clientPhone,
     serviceId: data.serviceId,
     barberId: data.barberId || null,
     status: 'WAITING',
-    positionInQueue: 2,
-    estimatedWaitMinutes: 20,
+    positionInQueue: existingList.length + 1,
+    estimatedWaitMinutes: (existingList.length + 1) * 20,
+    scheduledTime: data.scheduledTime || null,
+    ticketType: data.scheduledTime ? 'CITA' : 'LLEGADA',
     createdAt: new Date().toISOString()
   };
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('cartel_ticket_created', { detail: fallbackTicket }));
+  }
+  return fallbackTicket;
 }
 
 export async function callNextTicket(barberId: string, currentTicketId?: string | null) {
@@ -387,5 +404,98 @@ export async function fetchAppointments(barberId?: string): Promise<AppointmentR
     return seedAppointments.filter(a => a.barberId === barberId);
   }
   return seedAppointments;
+}
+
+// -------------------------------------------------------------
+// CRUD BARBEROS
+// -------------------------------------------------------------
+export async function createBarberApi(data: Partial<Barber>): Promise<Barber> {
+  const res = await fetch(`${API_BASE}/api/barbers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error('Error al registrar barbero en el servidor');
+  return res.json();
+}
+
+export async function updateBarberApi(id: string, data: Partial<Barber>): Promise<Barber> {
+  const res = await fetch(`${API_BASE}/api/barbers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error('Error al actualizar barbero en el servidor');
+  return res.json();
+}
+
+export async function deleteBarberApi(id: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/barbers/${id}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw new Error('Error al eliminar barbero en el servidor');
+  return res.json();
+}
+
+// -------------------------------------------------------------
+// CRUD SERVICIOS
+// -------------------------------------------------------------
+export async function createServiceApi(data: Partial<Service>): Promise<Service> {
+  const res = await fetch(`${API_BASE}/api/barbers/services`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error('Error al crear servicio en el servidor');
+  return res.json();
+}
+
+export async function updateServiceApi(id: string, data: Partial<Service>): Promise<Service> {
+  const res = await fetch(`${API_BASE}/api/barbers/services/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error('Error al actualizar servicio en el servidor');
+  return res.json();
+}
+
+export async function deleteServiceApi(id: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/barbers/services/${id}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw new Error('Error al eliminar servicio en el servidor');
+  return res.json();
+}
+
+// -------------------------------------------------------------
+// CRUD CITAS
+// -------------------------------------------------------------
+export async function createAppointmentApi(data: Partial<AppointmentRecord>): Promise<AppointmentRecord> {
+  const res = await fetch(`${API_BASE}/api/queue/appointments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error('Error al crear cita en el servidor');
+  return res.json();
+}
+
+export async function updateAppointmentApi(id: string, data: Partial<AppointmentRecord>): Promise<AppointmentRecord> {
+  const res = await fetch(`${API_BASE}/api/queue/appointments/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data)
+  });
+  if (!res.ok) throw new Error('Error al actualizar cita en el servidor');
+  return res.json();
+}
+
+export async function deleteAppointmentApi(id: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/queue/appointments/${id}`, {
+    method: 'DELETE'
+  });
+  if (!res.ok) throw new Error('Error al eliminar cita en el servidor');
+  return res.json();
 }
 

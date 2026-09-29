@@ -26,7 +26,25 @@ export const App: React.FC = () => {
     return localStorage.getItem('el_cartel_staff_auth') === 'true';
   });
   const [selectedServiceName, setSelectedServiceName] = useState<string>('');
+  const [selectedBarberId, setSelectedBarberId] = useState<string>('');
   const [currentMode, setCurrentMode] = useState<'client' | 'terminal'>('client');
+
+  // Detectar QR code o enlace directo (?barberId=b1 o #reservar)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const bId = params.get('barberId');
+      const hash = window.location.hash;
+      if (bId) {
+        setSelectedBarberId(bId);
+        setIsTakeTicketOpen(true);
+      } else if (hash === '#reservar') {
+        setIsTakeTicketOpen(true);
+      }
+    } catch (e) {
+      console.warn('Error al leer parámetros URL:', e);
+    }
+  }, []);
 
   const loadData = async () => {
     try {
@@ -59,8 +77,15 @@ export const App: React.FC = () => {
       }
     });
 
+    // Escuchar eventos globales de tickets creados localmente
+    const handleLocalTicket = (e: any) => {
+      loadData();
+    };
+    window.addEventListener('cartel_ticket_created', handleLocalTicket);
+
     return () => {
       unsubscribe();
+      window.removeEventListener('cartel_ticket_created', handleLocalTicket);
     };
   }, [userTicket]);
 
@@ -70,8 +95,11 @@ export const App: React.FC = () => {
     loadData();
   };
 
-  const handleSelectServiceFromCard = (serviceName: string) => {
+  const handleSelectServiceFromCard = (serviceName: string, barberId?: string) => {
     setSelectedServiceName(serviceName);
+    if (barberId) {
+      setSelectedBarberId(barberId);
+    }
     setIsTakeTicketOpen(true);
   };
 
@@ -128,8 +156,12 @@ export const App: React.FC = () => {
               onOpenLiveTicket={() => setIsLiveTicketOpen(true)}
             />
 
-            {/* 2. Nuestros Servicios */}
-            <ServicesSection onSelectService={handleSelectServiceFromCard} />
+            {/* 2. Nuestros Servicios Agrupados por Barbero */}
+            <ServicesSection
+              barbers={barbers}
+              services={services}
+              onSelectService={handleSelectServiceFromCard}
+            />
 
             {/* 3. Estilos & Cortes (Galería Grayscale) */}
             <StylesGallerySection
@@ -168,10 +200,14 @@ export const App: React.FC = () => {
       {/* Modal para solicitar turno / cita */}
       <TakeTicketModal
         isOpen={isTakeTicketOpen}
-        onClose={() => setIsTakeTicketOpen(false)}
+        onClose={() => {
+          setIsTakeTicketOpen(false);
+          setSelectedBarberId('');
+        }}
         barbers={barbers}
         services={services}
         initialServiceName={selectedServiceName}
+        initialBarberId={selectedBarberId}
         onTicketCreated={handleTicketCreated}
       />
 

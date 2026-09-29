@@ -11,4 +11,8 @@ queueRouter.post('/delay', (req, res) => queueController.delayTicket(req, res));
 queueRouter.get('/clients', (req, res) => queueController.getClients(req, res));
 queueRouter.put('/clients', (req, res) => queueController.updateClient(req, res));
 queueRouter.get('/appointments', (req, res) => queueController.getAppointments(req, res));
+queueRouter.post('/appointments', (req, res) => queueController.createAppointment(req, res));
+queueRouter.put('/appointments/:id', (req, res) => queueController.updateAppointment(req, res));
+queueRouter.delete('/appointments/:id', (req, res) => queueController.deleteAppointment(req, res));
 queueRouter.get('/stream', (req, res) => queueController.streamEvents(req, res));
+

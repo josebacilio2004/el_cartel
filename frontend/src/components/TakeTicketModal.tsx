@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { Barber, Service } from '../types';
 import { createTicket } from '../services/api';
+import { parseSlotToIso } from '../utils/ticketHelper';
 
 interface TakeTicketModalProps {
   isOpen: boolean;
@@ -22,6 +23,7 @@ interface TakeTicketModalProps {
   barbers: Barber[];
   services: Service[];
   initialServiceName?: string;
+  initialBarberId?: string;
   onTicketCreated: (ticket: any) => void;
 }
 
@@ -31,6 +33,7 @@ export const TakeTicketModal: React.FC<TakeTicketModalProps> = ({
   barbers: initialBarbers,
   services,
   initialServiceName,
+  initialBarberId,
   onTicketCreated
 }) => {
   const [bookingMode, setBookingMode] = useState<'queue' | 'appointment'>('queue');
@@ -42,6 +45,13 @@ export const TakeTicketModal: React.FC<TakeTicketModalProps> = ({
   const [selectedTimeSlot, setSelectedTimeSlot] = useState<string>('04:15 PM');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
+
+  // Sincronizar barbero inicial cuando se pasa por prop o QR
+  React.useEffect(() => {
+    if (initialBarberId) {
+      setSelectedBarberId(initialBarberId);
+    }
+  }, [initialBarberId, isOpen]);
 
   // Lista enriquecida de barberos con fotos oficiales
   const barbersList: Barber[] = (initialBarbers && initialBarbers.length > 0) ? initialBarbers : [
@@ -136,6 +146,66 @@ export const TakeTicketModal: React.FC<TakeTicketModalProps> = ({
         scheduledTime: bookingMode === 'appointment' ? selectedTimeSlot : undefined,
         scheduledDate: bookingMode === 'appointment' ? selectedDate : undefined
       });
+
+      // Persistir ticket del usuario
+      localStorage.setItem('el_cartel_user_ticket', JSON.stringify(newTicket));
+
+      // Sincronizar en cola unificada local y appointments
+      try {
+        const storedQueue = localStorage.getItem('el_cartel_unified_queue');
+        let currentQueue = storedQueue ? JSON.parse(storedQueue) : [];
+        const barberObj = barbersList.find(b => b.id === (newTicket.barberId || selectedBarberId));
+        const serviceObj = services.find(s => s.id === (newTicket.serviceId || selectedServiceId));
+        
+        const queueEntry = {
+          id: newTicket.id,
+          ticketCode: newTicket.ticketCode,
+          clientName: newTicket.clientName,
+          clientPhone: newTicket.clientPhone,
+          serviceName: serviceObj?.name || 'Corte Cartel',
+          servicePrice: Number(serviceObj?.price) || 35,
+          barberName: barberObj?.name || 'Cualquier Barbero',
+          barberId: barberObj?.id || selectedBarberId || null,
+          scheduledTime: bookingMode === 'appointment' ? selectedTimeSlot : undefined,
+          position: currentQueue.length + 1,
+          type: bookingMode === 'appointment' ? 'CITA' : 'LLEGADA',
+          estimatedWaitMin: (currentQueue.length + 1) * 20
+        };
+
+        currentQueue = [...currentQueue.filter((q: any) => q.id !== queueEntry.id), queueEntry];
+        localStorage.setItem('el_cartel_unified_queue', JSON.stringify(currentQueue));
+
+        if (bookingMode === 'appointment') {
+          const storedApts = localStorage.getItem('el_cartel_appointments_list');
+          let currentApts = storedApts ? JSON.parse(storedApts) : [];
+          const exactIsoStartTime = parseSlotToIso(selectedTimeSlot, selectedDate);
+          const durationMins = serviceObj?.durationMinutes || 35;
+          const endIsoTime = new Date(new Date(exactIsoStartTime).getTime() + durationMins * 60000).toISOString();
+
+          const newApt = {
+            id: `apt-cli-${Date.now()}`,
+            clientName: newTicket.clientName,
+            clientPhone: newTicket.clientPhone,
+            barberId: barberObj?.id || 'b1',
+            serviceId: serviceObj?.id || 's1',
+            startTime: exactIsoStartTime,
+            endTime: endIsoTime,
+            scheduledTime: selectedTimeSlot,
+            ticketCode: newTicket.ticketCode,
+            status: 'CONFIRMED' as const,
+            notes: `Cita reservada desde la Web para las ${selectedTimeSlot}`,
+            barber: barberObj,
+            service: serviceObj
+          };
+          currentApts = [newApt, ...currentApts];
+          localStorage.setItem('el_cartel_appointments_list', JSON.stringify(currentApts));
+        }
+
+        // Notificar en tiempo real a cualquier vista montada
+        window.dispatchEvent(new CustomEvent('cartel_ticket_created', { detail: newTicket }));
+      } catch (e) {
+        console.warn('Error al actualizar cola compartida:', e);
+      }
 
       onTicketCreated(newTicket);
       onClose();

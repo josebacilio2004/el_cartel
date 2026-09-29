@@ -21,6 +21,7 @@ export interface SaleTicket {
   amount: number;
   durationMinutes: number;
   paymentMethod: 'EFECTIVO' | 'YAPE' | 'PLIN' | 'TARJETA';
+  notes?: string;
   createdAt: string;
 }
 
@@ -31,6 +32,9 @@ export interface Service {
   durationMinutes: number;
   price: string | number;
   category: string;
+  imageUrl?: string;
+  barberId?: string | null;
+  barber?: Barber | null;
   isActive: boolean;
 }
 
@@ -49,6 +53,8 @@ export interface Ticket {
   calledAt?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  scheduledTime?: string | null;
+  ticketType?: 'LLEGADA' | 'CITA';
   createdAt: string;
 }
 
@@ -97,6 +103,8 @@ export interface AppointmentRecord {
   status: 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   isRegularClient?: boolean;
   notes?: string;
+  scheduledTime?: string;
+  ticketCode?: string;
   barber?: Barber;
   service?: Service;
 }

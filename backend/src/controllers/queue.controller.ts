@@ -110,6 +110,35 @@ export class QueueController {
       res.status(500).json({ error: error.message });
     }
   }
+
+  public async createAppointment(req: Request, res: Response) {
+    try {
+      const apt = await queueService.createAppointment(req.body);
+      res.status(201).json(apt);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  public async updateAppointment(req: Request, res: Response) {
+    try {
+      const id = req.params.id as string;
+      const apt = await queueService.updateAppointment(id, req.body);
+      res.json(apt);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+
+  public async deleteAppointment(req: Request, res: Response) {
+    try {
+      const id = req.params.id as string;
+      const result = await queueService.deleteAppointment(id);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
 }
 
 export const queueController = new QueueController();

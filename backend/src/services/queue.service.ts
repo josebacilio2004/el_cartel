@@ -1,5 +1,5 @@
 import { prisma } from '../config/prisma';
-import { TicketStatus, BarberStatus } from '@prisma/client';
+import { TicketStatus, BarberStatus, AppointmentStatus } from '@prisma/client';
 import { realtimeService } from './realtime.service';
 
 export class QueueService {
@@ -88,26 +88,50 @@ export class QueueService {
     clientPhone: string;
     serviceId: string;
     barberId?: string | null;
+    scheduledTime?: string;
+    scheduledDate?: string;
   }) {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    // Contar tickets de hoy para generar el código secuencial (B-01, B-02...)
-    const countToday = await prisma.ticket.count({
-      where: { createdAt: { gte: todayStart } }
+    // Buscar el mayor número de secuencia existente para garantizar código único (sin duplicados)
+    const existingTickets = await prisma.ticket.findMany({
+      select: { ticketCode: true }
     });
-
-    const sequenceNum = countToday + 1;
+    let maxSequence = 0;
+    for (const t of existingTickets) {
+      if (t.ticketCode) {
+        const match = t.ticketCode.match(/\d+/);
+        if (match) {
+          const num = parseInt(match[0], 10);
+          if (num > maxSequence) maxSequence = num;
+        }
+      }
+    }
+    const sequenceNum = maxSequence + 1;
     const ticketCode = `C-${sequenceNum < 10 ? '0' + sequenceNum : sequenceNum}`;
 
     // Obtener servicio para saber duración con fallback seguro
     let service = null;
-    try {
-      service = await prisma.service.findUnique({
-        where: { id: data.serviceId }
-      });
-    } catch (e) {
-      // Ignorar formato no-uuid
+    if (data.serviceId) {
+      try {
+        service = await prisma.service.findUnique({
+          where: { id: data.serviceId }
+        });
+      } catch (e) {
+        // Ignorar formato no-uuid
+      }
+
+      if (!service) {
+        service = await prisma.service.findFirst({
+          where: {
+            OR: [
+              { name: { contains: data.serviceId, mode: 'insensitive' } },
+              { id: data.serviceId }
+            ]
+          }
+        });
+      }
     }
 
     if (!service) {
@@ -120,7 +144,7 @@ export class QueueService {
       throw new Error('Servicio no encontrado');
     }
 
-    // Validar barbero con fallback seguro
+    // Validar barbero con resolución flexible (UUID, b1, b2, b3, o nombre)
     let validBarberId: string | null = null;
     if (data.barberId) {
       try {
@@ -131,7 +155,25 @@ export class QueueService {
       } catch (e) {
         // Ignorar formato no-uuid
       }
+
+      if (!validBarberId) {
+        const chairNum = data.barberId === 'b1' ? 1 : data.barberId === 'b2' ? 2 : data.barberId === 'b3' ? 3 : null;
+        if (chairNum) {
+          const barber = await prisma.barber.findFirst({ where: { chairNumber: chairNum } });
+          if (barber) validBarberId = barber.id;
+        } else {
+          const barber = await prisma.barber.findFirst({
+            where: {
+              name: { contains: data.barberId, mode: 'insensitive' }
+            }
+          });
+          if (barber) validBarberId = barber.id;
+        }
+      }
     }
+
+    const isAppointment = Boolean(data.scheduledTime);
+    const ticketType = isAppointment ? 'CITA' : 'LLEGADA';
 
     // Calcular posición actual en la fila
     const currentWaitingCount = await prisma.ticket.count({
@@ -142,7 +184,6 @@ export class QueueService {
     });
 
     const position = currentWaitingCount + 1;
-    // Estimación: 18 min base por persona delante
     const estimatedWait = Math.max(10, position * 18);
 
     const newTicket = await prisma.ticket.create({
@@ -154,7 +195,9 @@ export class QueueService {
         barberId: validBarberId,
         status: TicketStatus.WAITING,
         positionInQueue: position,
-        estimatedWaitMinutes: estimatedWait
+        estimatedWaitMinutes: estimatedWait,
+        scheduledTime: data.scheduledTime || null,
+        ticketType
       },
       include: {
         service: true,
@@ -162,9 +205,45 @@ export class QueueService {
       }
     });
 
-    // Notificar a todos los clientes conectados vía SSE
+    // Si es una cita agendada, crear también el registro en prisma.appointment para que figure en la agenda
+    if (isAppointment && validBarberId) {
+      try {
+        const aptDate = new Date();
+        if (data.scheduledTime) {
+          const timeParts = data.scheduledTime.match(/(\d+):(\d+)\s*(AM|PM)?/i);
+          if (timeParts) {
+            let h = parseInt(timeParts[1], 10);
+            const m = parseInt(timeParts[2], 10);
+            const isPM = (timeParts[3] || '').toUpperCase() === 'PM';
+            if (isPM && h < 12) h += 12;
+            if (!isPM && h === 12) h = 0;
+            aptDate.setHours(h, m, 0, 0);
+          }
+        }
+
+        const endTime = new Date(aptDate.getTime() + (service.durationMinutes || 30) * 60000);
+
+        await prisma.appointment.create({
+          data: {
+            clientName: data.clientName.trim(),
+            clientPhone: data.clientPhone ? data.clientPhone.trim() : '',
+            barberId: validBarberId,
+            serviceId: service.id,
+            startTime: aptDate,
+            endTime: endTime,
+            status: AppointmentStatus.CONFIRMED,
+            notes: `Reserva agendada desde web · ${data.scheduledTime || ''}`
+          }
+        });
+      } catch (err) {
+        console.warn('Error al registrar cita automática:', err);
+      }
+    }
+
+    // Notificar a todos los clientes y paneles conectados vía SSE
     const queueStatus = await this.getQueueStatus();
     realtimeService.broadcast('QUEUE_UPDATED', queueStatus);
+    realtimeService.broadcast('NEW_TICKET', newTicket);
 
     return newTicket;
   }
@@ -412,6 +491,99 @@ export class QueueService {
     });
 
     return appointments;
+  }
+
+  /**
+   * Crea una cita directamente en base de datos
+   */
+  public async createAppointment(data: {
+    clientName: string;
+    clientPhone: string;
+    barberId: string;
+    serviceId: string;
+    startTime: string | Date;
+    endTime?: string | Date;
+    notes?: string;
+  }) {
+    let validBarberId = data.barberId;
+    try {
+      const b = await prisma.barber.findUnique({ where: { id: data.barberId } });
+      if (b) validBarberId = b.id;
+    } catch (e) {}
+
+    if (!validBarberId || validBarberId === 'b1' || validBarberId === 'b2' || validBarberId === 'b3') {
+      const chairNum = data.barberId === 'b1' ? 1 : data.barberId === 'b2' ? 2 : data.barberId === 'b3' ? 3 : 1;
+      const b = await prisma.barber.findFirst({ where: { chairNumber: chairNum } });
+      if (b) validBarberId = b.id;
+    }
+
+    let validServiceId = data.serviceId;
+    try {
+      const s = await prisma.service.findUnique({ where: { id: data.serviceId } });
+      if (s) validServiceId = s.id;
+    } catch (e) {}
+
+    if (!validServiceId || validServiceId.startsWith('s')) {
+      const s = await prisma.service.findFirst({ where: { isActive: true } });
+      if (s) validServiceId = s.id;
+    }
+
+    const start = new Date(data.startTime);
+    const end = data.endTime ? new Date(data.endTime) : new Date(start.getTime() + 35 * 60000);
+
+    const apt = await prisma.appointment.create({
+      data: {
+        clientName: data.clientName.trim(),
+        clientPhone: data.clientPhone.trim(),
+        barberId: validBarberId,
+        serviceId: validServiceId,
+        startTime: start,
+        endTime: end,
+        status: AppointmentStatus.CONFIRMED,
+        notes: data.notes || 'Cita registrada'
+      },
+      include: {
+        barber: true,
+        service: true
+      }
+    });
+
+    realtimeService.broadcast('APPOINTMENT_CREATED', apt);
+    return apt;
+  }
+
+  /**
+   * Actualiza el estado o notas de una cita
+   */
+  public async updateAppointment(id: string, data: {
+    status?: any;
+    notes?: string;
+    startTime?: string | Date;
+  }) {
+    const apt = await prisma.appointment.update({
+      where: { id },
+      data: {
+        status: data.status,
+        notes: data.notes,
+        startTime: data.startTime ? new Date(data.startTime) : undefined
+      },
+      include: {
+        barber: true,
+        service: true
+      }
+    });
+
+    realtimeService.broadcast('APPOINTMENT_UPDATED', apt);
+    return apt;
+  }
+
+  /**
+   * Elimina una cita de base de datos
+   */
+  public async deleteAppointment(id: string) {
+    await prisma.appointment.delete({ where: { id } });
+    realtimeService.broadcast('APPOINTMENT_DELETED', { id });
+    return { success: true, id };
   }
 }
 

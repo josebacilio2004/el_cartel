@@ -36,7 +36,10 @@ import {
   SlidersHorizontal,
   CreditCard,
   Wallet,
-  Zap
+  Zap,
+  QrCode,
+  Copy,
+  Check
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -54,7 +57,30 @@ import {
   Legend
 } from 'recharts';
 import { QueueStatus, Barber, Service, Ticket, ClientRecord, SaleTicket, AppointmentRecord } from '../types';
-import { fetchClients, createTicket, updateClientInBackend, fetchAppointments } from '../services/api';
+import {
+  fetchClients,
+  createTicket,
+  updateClientInBackend,
+  fetchAppointments,
+  createBarberApi,
+  updateBarberApi,
+  deleteBarberApi,
+  createServiceApi,
+  updateServiceApi,
+  deleteServiceApi,
+  createAppointmentApi,
+  updateAppointmentApi,
+  deleteAppointmentApi
+} from '../services/api';
+import { ClientTicketDetailModal, DetailItem } from './ClientTicketDetailModal';
+import { DigitalInvoiceModal } from './DigitalInvoiceModal';
+import { AssignChairModal, QueuedCustomer } from './AssignChairModal';
+import {
+  parseSlotToIso,
+  getSlotMinutes,
+  formatSlotDisplay,
+  generateUniqueTicketCode
+} from '../utils/ticketHelper';
 
 interface AdminDashboardProps {
   queueStatus: QueueStatus | null;
@@ -141,6 +167,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     durationMinutes: 30,
     category: 'CORTES',
     description: '',
+    imageUrl: '',
+    barberId: activeBarberId,
     isActive: true
   });
 
@@ -152,6 +180,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       durationMinutes: 30,
       category: 'CORTES',
       description: '',
+      imageUrl: '',
+      barberId: activeBarberId,
       isActive: true
     });
     setIsServiceModalOpen(true);
@@ -165,45 +195,75 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       durationMinutes: s.durationMinutes,
       category: s.category,
       description: s.description || '',
+      imageUrl: s.imageUrl || '',
+      barberId: s.barberId || activeBarberId,
       isActive: s.isActive
     });
     setIsServiceModalOpen(true);
   };
 
-  const handleSaveService = (e: React.FormEvent) => {
+  const handleSaveService = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!serviceForm.name.trim()) return;
 
     if (editingService) {
-      setServicesList(prev => prev.map(s => s.id === editingService.id ? {
-        ...s,
+      const updatedData = {
         name: serviceForm.name,
         price: Number(serviceForm.price),
         durationMinutes: Number(serviceForm.durationMinutes),
         category: serviceForm.category,
         description: serviceForm.description,
-        isActive: serviceForm.isActive
-      } : s));
-      showNotification(`Servicio "${serviceForm.name}" actualizado`);
-    } else {
-      const newService: Service = {
-        id: `s-${Date.now()}`,
-        name: serviceForm.name,
-        price: Number(serviceForm.price),
-        durationMinutes: Number(serviceForm.durationMinutes),
-        category: serviceForm.category,
-        description: serviceForm.description,
+        imageUrl: serviceForm.imageUrl,
+        barberId: serviceForm.barberId || null,
         isActive: serviceForm.isActive
       };
+      setServicesList(prev => prev.map(s => s.id === editingService.id ? {
+        ...s,
+        ...updatedData
+      } : s));
+      try {
+        await updateServiceApi(editingService.id, updatedData);
+      } catch (err) {
+        console.warn('Backend service update offline:', err);
+      }
+      showNotification(`Servicio "${serviceForm.name}" actualizado`);
+    } else {
+      const newServiceData = {
+        name: serviceForm.name,
+        price: Number(serviceForm.price),
+        durationMinutes: Number(serviceForm.durationMinutes),
+        category: serviceForm.category,
+        description: serviceForm.description,
+        imageUrl: serviceForm.imageUrl || 'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=600&auto=format&fit=crop&q=80',
+        barberId: serviceForm.barberId || null,
+        isActive: serviceForm.isActive
+      };
+      const newService: Service = {
+        id: `s-${Date.now()}`,
+        ...newServiceData
+      };
       setServicesList(prev => [...prev, newService]);
+      try {
+        const created = await createServiceApi(newServiceData);
+        if (created && created.id) {
+          setServicesList(prev => prev.map(s => s.id === newService.id ? created : s));
+        }
+      } catch (err) {
+        console.warn('Backend service create offline:', err);
+      }
       showNotification(`Servicio "${serviceForm.name}" creado con éxito`);
     }
     setIsServiceModalOpen(false);
   };
 
-  const handleDeleteService = (id: string, name: string) => {
+  const handleDeleteService = async (id: string, name: string) => {
     if (confirm(`¿Estás seguro de eliminar el servicio "${name}"?`)) {
       setServicesList(prev => prev.filter(s => s.id !== id));
+      try {
+        await deleteServiceApi(id);
+      } catch (err) {
+        console.warn('Backend delete service offline:', err);
+      }
       showNotification(`Servicio "${name}" eliminado`);
     }
   };
@@ -248,43 +308,67 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsBarberModalOpen(true);
   };
 
-  const handleSaveBarber = (e: React.FormEvent) => {
+  const handleSaveBarber = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!barberForm.name.trim()) return;
 
     if (editingBarber) {
-      setBarbersList(prev => prev.map(b => b.id === editingBarber.id ? {
-        ...b,
+      const updatedBarber = {
         name: barberForm.name,
         chairNumber: Number(barberForm.chairNumber),
         specialty: barberForm.specialty,
         pin: barberForm.pin,
         photoUrl: barberForm.photoUrl,
         status: barberForm.status
+      };
+      setBarbersList(prev => prev.map(b => b.id === editingBarber.id ? {
+        ...b,
+        ...updatedBarber
       } : b));
+      try {
+        await updateBarberApi(editingBarber.id, updatedBarber);
+      } catch (err) {
+        console.warn('Backend update barber offline:', err);
+      }
       showNotification(`Barbero "${barberForm.name}" actualizado`);
     } else {
-      const newB: Barber = {
-        id: `b-${Date.now()}`,
+      const newBData = {
         name: barberForm.name,
         chairNumber: Number(barberForm.chairNumber),
         specialty: barberForm.specialty,
         pin: barberForm.pin,
         photoUrl: barberForm.photoUrl || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=120',
-        status: barberForm.status,
+        status: barberForm.status
+      };
+      const newB: Barber = {
+        id: `b-${Date.now()}`,
+        ...newBData,
         todayCutsCount: 0,
         todayEarnings: 0
       };
       setBarbersList(prev => [...prev, newB]);
+      try {
+        const created = await createBarberApi(newBData);
+        if (created && created.id) {
+          setBarbersList(prev => prev.map(b => b.id === newB.id ? created : b));
+        }
+      } catch (err) {
+        console.warn('Backend create barber offline:', err);
+      }
       showNotification(`Barbero "${barberForm.name}" incorporado`);
     }
     setIsBarberModalOpen(false);
   };
 
-  const handleDeleteBarber = (id: string, name: string) => {
-    if (confirm(`¿Estás seguro de desvincular a "${name}" del staff?`)) {
+  const handleDeleteBarber = async (id: string, name: string) => {
+    if (confirm(`¿Estás seguro de desvincular al barbero "${name}"?`)) {
       setBarbersList(prev => prev.filter(b => b.id !== id));
-      showNotification(`Barbero "${name}" removido`);
+      try {
+        await deleteBarberApi(id);
+      } catch (err) {
+        console.warn('Backend delete barber offline:', err);
+      }
+      showNotification(`Barbero "${name}" eliminado`);
     }
   };
 
@@ -627,6 +711,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Filtro de la cola de espera: 'my' (solo turnos de este barbero o unassigned) vs 'all' (toda la barbería)
   const [queueFilter, setQueueFilter] = useState<'my' | 'all'>('my');
+  const [queueCategoryTab, setQueueCategoryTab] = useState<'all' | 'appointments' | 'walkin'>('all');
+
+  // Modal de Detalle de Ticket / Cliente
+  const [detailModalItem, setDetailModalItem] = useState<DetailItem | null>(null);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+
+  // Modal para Asignar Sillón Libre
+  const [isAssignChairModalOpen, setIsAssignChairModalOpen] = useState(false);
+
+  // Modal de QR de Estación
+  const [isStationQrOpen, setIsStationQrOpen] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Cola unificada en vivo (tickets de llegada + citas programadas)
   const [unifiedQueue, setUnifiedQueue] = useState<Array<{
@@ -637,98 +733,271 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     serviceName: string;
     servicePrice: number;
     barberName: string;
+    barberId?: string | null;
     scheduledTime?: string;
     position: number;
     type: 'LLEGADA' | 'CITA';
     estimatedWaitMin: number;
-  }>>([
-    {
-      id: 'q-1',
-      ticketCode: 'C-04',
-      clientName: 'Rodrigo Santillán',
-      clientPhone: '+51 922 431 880',
-      serviceName: 'Ritual Barba & Toalla Caliente',
-      servicePrice: 25,
-      barberName: 'Frank Master',
-      scheduledTime: '04:30 PM',
-      position: 1,
-      type: 'CITA',
-      estimatedWaitMin: 15
-    },
-    {
-      id: 'q-2',
-      ticketCode: 'C-05',
-      clientName: 'Christian Benavides',
-      clientPhone: '+51 983 445 566',
-      serviceName: 'Fade Urbano Cartel',
-      servicePrice: 35,
-      barberName: 'Mateo Fade',
-      scheduledTime: '03:45 PM',
-      position: 2,
-      type: 'CITA',
-      estimatedWaitMin: 25
-    },
-    {
-      id: 'q-3',
-      ticketCode: 'C-06',
-      clientName: 'Alejandro Torres',
-      clientPhone: '+51 954 882 119',
-      serviceName: 'Corte Clásico Ejecutivo',
-      servicePrice: 30,
-      barberName: 'Cualquier Barbero',
-      position: 3,
-      type: 'LLEGADA',
-      estimatedWaitMin: 35
-    },
-    {
-      id: 'q-4',
-      ticketCode: 'C-07',
-      clientName: 'Mauricio Alarcón',
-      clientPhone: '+51 965 667 788',
-      serviceName: 'Corte Clásico Ejecutivo',
-      servicePrice: 30,
-      barberName: 'Santi Style',
-      scheduledTime: '02:30 PM',
-      position: 4,
-      type: 'CITA',
-      estimatedWaitMin: 45
-    },
-    {
-      id: 'q-5',
-      ticketCode: 'C-08',
-      clientName: 'Gianfranco Rossi',
-      clientPhone: '+51 998 776 554',
-      serviceName: 'Combo El Cartel (Corte + Barba)',
-      servicePrice: 50,
-      barberName: 'Frank Master',
-      scheduledTime: '06:30 PM',
-      position: 5,
-      type: 'CITA',
-      estimatedWaitMin: 60
-    },
-    {
-      id: 'q-6',
-      ticketCode: 'C-09',
-      clientName: 'Bryan Palacios',
-      clientPhone: '+51 974 556 677',
-      serviceName: 'Combo El Cartel',
-      servicePrice: 50,
-      barberName: 'Mateo Fade',
-      scheduledTime: '05:15 PM',
-      position: 6,
-      type: 'CITA',
-      estimatedWaitMin: 75
+  }>>(() => {
+    const saved = localStorage.getItem('el_cartel_unified_queue');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch (e) {}
     }
-  ]);
+    return [
+      {
+        id: 'q-1',
+        ticketCode: 'C-04',
+        clientName: 'Rodrigo Santillán',
+        clientPhone: '+51 922 431 880',
+        serviceName: 'Ritual Barba & Toalla Caliente',
+        servicePrice: 25,
+        barberName: 'Frank Master',
+        barberId: 'b1',
+        scheduledTime: '04:30 PM',
+        position: 1,
+        type: 'CITA',
+        estimatedWaitMin: 15
+      },
+      {
+        id: 'q-2',
+        ticketCode: 'C-05',
+        clientName: 'Christian Benavides',
+        clientPhone: '+51 983 445 566',
+        serviceName: 'Fade Urbano Cartel',
+        servicePrice: 35,
+        barberName: 'Mateo Fade',
+        barberId: 'b2',
+        scheduledTime: '03:45 PM',
+        position: 2,
+        type: 'CITA',
+        estimatedWaitMin: 25
+      },
+      {
+        id: 'q-3',
+        ticketCode: 'C-06',
+        clientName: 'Alejandro Torres',
+        clientPhone: '+51 954 882 119',
+        serviceName: 'Corte Clásico Ejecutivo',
+        servicePrice: 30,
+        barberName: 'Cualquier Barbero',
+        barberId: null,
+        position: 3,
+        type: 'LLEGADA',
+        estimatedWaitMin: 35
+      },
+      {
+        id: 'q-4',
+        ticketCode: 'C-07',
+        clientName: 'Mauricio Alarcón',
+        clientPhone: '+51 965 667 788',
+        serviceName: 'Corte Clásico Ejecutivo',
+        servicePrice: 30,
+        barberName: 'Santi Style',
+        barberId: 'b3',
+        scheduledTime: '02:30 PM',
+        position: 4,
+        type: 'CITA',
+        estimatedWaitMin: 45
+      },
+      {
+        id: 'q-5',
+        ticketCode: 'C-08',
+        clientName: 'Gianfranco Rossi',
+        clientPhone: '+51 998 776 554',
+        serviceName: 'Combo El Cartel (Corte + Barba)',
+        servicePrice: 50,
+        barberName: 'Frank Master',
+        barberId: 'b1',
+        scheduledTime: '06:30 PM',
+        position: 5,
+        type: 'CITA',
+        estimatedWaitMin: 60
+      },
+      {
+        id: 'q-6',
+        ticketCode: 'C-09',
+        clientName: 'Bryan Palacios',
+        clientPhone: '+51 974 556 677',
+        serviceName: 'Combo El Cartel',
+        servicePrice: 50,
+        barberName: 'Mateo Fade',
+        barberId: 'b2',
+        scheduledTime: '05:15 PM',
+        position: 6,
+        type: 'CITA',
+        estimatedWaitMin: 75
+      }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('el_cartel_unified_queue', JSON.stringify(unifiedQueue));
+  }, [unifiedQueue]);
+
+  // Sincronización en tiempo real cuando un cliente se registra en la landing
+  useEffect(() => {
+    const handleNewTicketEvent = (e: any) => {
+      const ticket: Ticket = e.detail;
+      if (!ticket) return;
+
+      const targetBarber = barbersList.find(b => b.id === ticket.barberId) ||
+                           barbersList.find(b => b.name.toLowerCase() === ticket.barber?.name?.toLowerCase());
+      const targetService = servicesList.find(s => s.id === ticket.serviceId) ||
+                            servicesList.find(s => s.name.toLowerCase() === ticket.service?.name?.toLowerCase());
+
+      const bName = targetBarber ? targetBarber.name : (ticket.barber?.name || 'Cualquier Barbero');
+      const sName = targetService ? targetService.name : (ticket.service?.name || 'Corte Cartel');
+      const sPrice = targetService ? Number(targetService.price) : (Number(ticket.service?.price) || 35);
+
+      let resolvedCode = ticket.ticketCode;
+      setUnifiedQueue(prev => {
+        if (prev.some(q => q.id === ticket.id)) {
+          return prev;
+        }
+        if (!resolvedCode || prev.some(q => q.ticketCode === resolvedCode)) {
+          resolvedCode = generateUniqueTicketCode(prev);
+        }
+        const newQueueItem = {
+          id: ticket.id,
+          ticketCode: resolvedCode,
+          clientName: ticket.clientName,
+          clientPhone: ticket.clientPhone,
+          serviceName: sName,
+          servicePrice: sPrice,
+          barberName: bName,
+          barberId: targetBarber?.id || ticket.barberId || null,
+          scheduledTime: ticket.scheduledTime || undefined,
+          position: prev.length + 1,
+          type: (ticket.ticketType === 'CITA' || ticket.scheduledTime) ? ('CITA' as const) : ('LLEGADA' as const),
+          estimatedWaitMin: (prev.length + 1) * 20
+        };
+        return [...prev, newQueueItem];
+      });
+
+      // Si es CITA, sincronizar también en la agenda de appointmentsList con el horario exacto
+      if (ticket.ticketType === 'CITA' || ticket.scheduledTime) {
+        const exactStartTime = parseSlotToIso(ticket.scheduledTime || '06:30 PM');
+        const durationMins = targetService?.durationMinutes || 35;
+        const exactEndTime = new Date(new Date(exactStartTime).getTime() + durationMins * 60000).toISOString();
+
+        setAppointmentsList(prev => {
+          if (prev.some(a => a.clientName === ticket.clientName && a.barberId === (targetBarber?.id || 'b1'))) {
+            return prev;
+          }
+          const newApt: AppointmentRecord = {
+            id: `apt-${ticket.id}`,
+            clientName: ticket.clientName,
+            clientPhone: ticket.clientPhone,
+            barberId: targetBarber?.id || 'b1',
+            serviceId: targetService?.id || 's1',
+            startTime: exactStartTime,
+            endTime: exactEndTime,
+            scheduledTime: ticket.scheduledTime || undefined,
+            ticketCode: resolvedCode,
+            status: 'CONFIRMED',
+            notes: `Reserva web para ${ticket.scheduledTime || 'horario elegido'}`,
+            barber: targetBarber,
+            service: targetService
+          };
+          return [newApt, ...prev];
+        });
+      }
+
+      // Sincronizar directorio de clientes si no existe
+      setClients(prev => {
+        if (prev.some(c => c.phone.trim() === ticket.clientPhone.trim() || c.name.toLowerCase() === ticket.clientName.toLowerCase())) {
+          return prev;
+        }
+        const newClientRecord: ClientRecord = {
+          id: `cli-${Date.now()}`,
+          name: ticket.clientName,
+          phone: ticket.clientPhone,
+          totalVisits: 1,
+          lastService: sName,
+          lastBarber: bName,
+          lastDate: new Date().toISOString(),
+          currentStatus: 'WAITING',
+          currentTicketCode: ticket.ticketCode,
+          isVIP: false,
+          notes: 'Registrado desde la Landing Page'
+        };
+        return [newClientRecord, ...prev];
+      });
+
+      showNotification(`¡Nuevo cliente ${ticket.clientName} ingresó para ${bName}!`);
+    };
+
+    window.addEventListener('cartel_ticket_created', handleNewTicketEvent);
+    return () => {
+      window.removeEventListener('cartel_ticket_created', handleNewTicketEvent);
+    };
+  }, [barbersList, servicesList]);
+
+  // Sincronizar con queueStatus recibido desde backend SSE
+  useEffect(() => {
+    if (queueStatus && queueStatus.waiting && queueStatus.waiting.length > 0) {
+      setUnifiedQueue(prev => {
+        let changed = false;
+        let next = [...prev];
+        queueStatus.waiting.forEach(wt => {
+          if (!next.some(item => item.id === wt.id)) {
+            changed = true;
+            let code = wt.ticketCode;
+            if (!code || next.some(item => item.ticketCode === code)) {
+              code = generateUniqueTicketCode(next);
+            }
+            next.push({
+              id: wt.id,
+              ticketCode: code,
+              clientName: wt.clientName,
+              clientPhone: wt.clientPhone,
+              serviceName: wt.service?.name || 'Corte Cartel',
+              servicePrice: Number(wt.service?.price) || 35,
+              barberName: wt.barber?.name || 'Cualquier Barbero',
+              barberId: wt.barberId || wt.barber?.id || null,
+              scheduledTime: wt.scheduledTime || undefined,
+              position: next.length + 1,
+              type: wt.ticketType === 'CITA' || wt.scheduledTime ? 'CITA' : 'LLEGADA',
+              estimatedWaitMin: (next.length + 1) * 20
+            });
+          }
+        });
+        return changed ? next : prev;
+      });
+    }
+  }, [queueStatus]);
 
   // Cola de espera filtrada según el barbero activo
   const filteredQueue = queueFilter === 'my'
     ? unifiedQueue.filter(item => {
-        const barberMatch = item.barberName.toLowerCase() === activeBarber.name.toLowerCase();
-        const anyBarber = item.barberName === 'Cualquier Barbero' || item.barberName === 'Cualquiera' || !item.barberName;
+        const itemBarberId = item.barberId;
+        const currentBarberId = activeBarber.id;
+        const barberMatch = item.barberName.toLowerCase() === activeBarber.name.toLowerCase() || (itemBarberId && itemBarberId === currentBarberId);
+        const anyBarber = item.barberName === 'Cualquier Barbero' || item.barberName === 'Cualquiera' || !item.barberName || !itemBarberId;
         return barberMatch || anyBarber;
       })
     : unifiedQueue;
+
+  // Separación y ordenamiento estricto de la cola:
+  // 1. Citas programadas ordenadas estrictamente cronológicas de temprano a tarde
+  const scheduledQueueList = filteredQueue
+    .filter(item => item.type === 'CITA' || Boolean(item.scheduledTime))
+    .sort((a, b) => getSlotMinutes(a.scheduledTime) - getSlotMinutes(b.scheduledTime));
+
+  // 2. Clientes por orden de llegada ordenados estrictamente por número de turno/posición (FIFO)
+  const walkInQueueList = filteredQueue
+    .filter(item => item.type !== 'CITA' && !item.scheduledTime)
+    .sort((a, b) => (a.position || 0) - (b.position || 0));
+
+  // 3. Lista a mostrar según pestaña de vista seleccionada
+  const displayQueueList = queueCategoryTab === 'appointments'
+    ? scheduledQueueList
+    : queueCategoryTab === 'walkin'
+    ? walkInQueueList
+    : [...scheduledQueueList, ...walkInQueueList];
 
   // ----------------------------------------------------
   // GESTIÓN DE CITAS & AGENDA (SINCRONIZADO CON SEEDER)
@@ -777,15 +1046,59 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       })
     : appointmentsList;
 
+  // Citas ordenadas estrictamente cronológicas de temprano a tarde (10:00 AM ... 06:30 PM)
+  const sortedAppointments = [...filteredAppointments].sort((a, b) => {
+    const minA = getSlotMinutes(a.scheduledTime || a.startTime);
+    const minB = getSlotMinutes(b.scheduledTime || b.startTime);
+    return minA - minB;
+  });
+
+  // Apertura de modal con todos los detalles registrados del cliente
+  const handleOpenDetailFromAppointment = (apt: AppointmentRecord) => {
+    const livePhone = getClientCurrentPhone(apt.clientName, apt.clientPhone);
+    const timeDisplay = formatSlotDisplay(apt.startTime, apt.scheduledTime);
+    setDetailModalItem({
+      id: apt.id,
+      ticketCode: apt.ticketCode || `CITA-${apt.id.slice(-4).toUpperCase()}`,
+      clientName: apt.clientName,
+      clientPhone: livePhone,
+      serviceName: apt.service?.name || 'Servicio Barbería',
+      servicePrice: Number(apt.service?.price) || 35,
+      barberName: apt.barber?.name || activeBarber.name,
+      barberId: apt.barberId || activeBarber.id,
+      chairNumber: apt.barber?.chairNumber || activeBarber.chairNumber,
+      scheduledTime: timeDisplay,
+      type: 'CITA',
+      status: apt.status,
+      notes: apt.notes,
+      isVIP: apt.isRegularClient
+    });
+    setIsDetailModalOpen(true);
+  };
+
+  const handleOpenDetailFromQueue = (item: typeof unifiedQueue[0]) => {
+    const livePhone = getClientCurrentPhone(item.clientName, item.clientPhone);
+    setDetailModalItem({
+      id: item.id,
+      ticketCode: item.ticketCode,
+      clientName: item.clientName,
+      clientPhone: livePhone,
+      serviceName: item.serviceName,
+      servicePrice: item.servicePrice,
+      barberName: item.barberName,
+      barberId: item.barberId,
+      scheduledTime: item.scheduledTime,
+      position: item.position,
+      type: item.type,
+      estimatedWaitMin: item.estimatedWaitMin,
+      status: 'En Espera'
+    });
+    setIsDetailModalOpen(true);
+  };
+
   // Helper para formatear hora de cita
-  const formatAppointmentTime = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
-      }
-    } catch (e) {}
-    return dateStr;
+  const formatAppointmentTime = (dateStr: string, explicitSlot?: string) => {
+    return formatSlotDisplay(dateStr, explicitSlot);
   };
 
   // Acciones sobre citas
@@ -956,47 +1269,156 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setIsReceiptModalOpen(true);
   };
 
-  // Confirmar cobro y llamar al siguiente
-  const handleConfirmPaymentAndCallNext = () => {
-    if (!activeReceipt) return;
-
+  // Confirmar cobro con comprobante digital y liberar el sillón para asignación personalizada
+  const handleConfirmPaymentAndFreeChair = (updatedReceipt: SaleTicket) => {
     // 1. Guardar en historial de ventas
-    setSalesHistory(prev => [activeReceipt, ...prev]);
+    setSalesHistory(prev => [updatedReceipt, ...prev]);
 
     // 2. Actualizar conteo del barbero
     setBarbersList(prev => prev.map(b => b.id === activeBarber.id ? {
       ...b,
       todayCutsCount: (b.todayCutsCount || 0) + 1,
-      todayEarnings: (b.todayEarnings || 0) + activeReceipt.amount
+      todayEarnings: (b.todayEarnings || 0) + updatedReceipt.amount
     } : b));
 
-    // 3. Pasar al siguiente cliente destinado a este barbero o turno libre
-    const nextClient = unifiedQueue.find(item => {
-      const barberMatch = item.barberName.toLowerCase() === activeBarber.name.toLowerCase();
-      const anyBarber = item.barberName === 'Cualquier Barbero' || item.barberName === 'Cualquiera' || !item.barberName;
-      return barberMatch || anyBarber;
-    }) || (unifiedQueue.length > 0 ? unifiedQueue[0] : null);
-
-    if (nextClient) {
-      setChairClient({
-        ticketCode: nextClient.ticketCode,
-        clientName: nextClient.clientName,
-        clientPhone: getClientCurrentPhone(nextClient.clientName, nextClient.clientPhone),
-        serviceName: nextClient.serviceName,
-        servicePrice: nextClient.servicePrice,
-        startedAt: Date.now()
-      });
-      setUnifiedQueue(prev => prev.filter(q => q.id !== nextClient.id).map((item, idx) => ({ ...item, position: idx + 1 })));
-      setTimerSeconds(0);
-      showNotification(`¡Turno ${activeReceipt.ticketCode} cobrado (S/. ${activeReceipt.amount.toFixed(2)})! Llamado ${nextClient.clientName}`);
-    } else {
-      setChairClient(null);
-      setTimerSeconds(0);
-      showNotification(`¡Turno ${activeReceipt.ticketCode} cobrado con éxito! Sillón libre.`);
-    }
-
+    // 3. Liberar el sillón (espacio disponible)
+    setChairClient(null);
+    setTimerSeconds(0);
     setIsReceiptModalOpen(false);
+
+    // 4. Abrir modal para que el barbero seleccione a quién sentar según horario o llegada
+    setIsAssignChairModalOpen(true);
+
+    showNotification(`¡Comprobante #${updatedReceipt.ticketCode} emitido (S/. ${updatedReceipt.amount.toFixed(2)})! Sillón libre para nueva atención.`);
     onRefresh();
+  };
+
+  // Compatibilidad legacy si fuera invocado
+  const handleConfirmPaymentAndCallNext = () => {
+    if (!activeReceipt) return;
+    handleConfirmPaymentAndFreeChair(activeReceipt);
+  };
+
+  // Asignar cliente seleccionado al sillón
+  const handleSelectClientForChair = (selected: QueuedCustomer) => {
+    setChairClient({
+      ticketCode: selected.ticketCode,
+      clientName: selected.clientName,
+      clientPhone: selected.clientPhone,
+      serviceName: selected.serviceName,
+      servicePrice: selected.servicePrice,
+      startedAt: Date.now()
+    });
+    setUnifiedQueue(prev => prev.filter(q => q.id !== selected.id).map((item, idx) => ({ ...item, position: idx + 1 })));
+    setAppointmentsList(prev => prev.map(a => (
+      a.clientName.toLowerCase() === selected.clientName.toLowerCase() || (selected.ticketCode && a.ticketCode === selected.ticketCode)
+        ? { ...a, status: 'IN_PROGRESS' }
+        : a
+    )));
+    setTimerSeconds(0);
+    setIsAssignChairModalOpen(false);
+    showNotification(`¡${selected.clientName} (#${selected.ticketCode}) llamado a tu sillón #${activeBarber.chairNumber}!`);
+  };
+
+  // ----------------------------------------------------
+  // CRUD DE TICKETS DE VENTA & BOLETAS EN MÉTRICAS
+  // ----------------------------------------------------
+  const [salesSearchQuery, setSalesSearchQuery] = useState('');
+  const [salesFilter, setSalesFilter] = useState<'ALL' | 'YAPE' | 'PLIN' | 'EFECTIVO' | 'TARJETA'>('ALL');
+  const [isSaleCrudModalOpen, setIsSaleCrudModalOpen] = useState(false);
+  const [editingSaleTicket, setEditingSaleTicket] = useState<SaleTicket | null>(null);
+  const [saleCrudForm, setSaleCrudForm] = useState({
+    ticketCode: '',
+    clientName: '',
+    clientPhone: '',
+    serviceName: '',
+    barberName: activeBarber.name,
+    chairNumber: activeBarber.chairNumber,
+    amount: 35,
+    durationMinutes: 30,
+    paymentMethod: 'YAPE' as 'YAPE' | 'PLIN' | 'EFECTIVO' | 'TARJETA',
+    notes: ''
+  });
+
+  const handleOpenNewSale = () => {
+    setEditingSaleTicket(null);
+    setSaleCrudForm({
+      ticketCode: `C-${salesHistory.length + 10}`,
+      clientName: '',
+      clientPhone: '+51 ',
+      serviceName: servicesList[0]?.name || 'Fade Urbano Cartel',
+      barberName: activeBarber.name,
+      chairNumber: activeBarber.chairNumber,
+      amount: Number(servicesList[0]?.price) || 35,
+      durationMinutes: 30,
+      paymentMethod: 'YAPE',
+      notes: 'Venta registrada manualmente'
+    });
+    setIsSaleCrudModalOpen(true);
+  };
+
+  const handleOpenEditSale = (sale: SaleTicket) => {
+    setEditingSaleTicket(sale);
+    setSaleCrudForm({
+      ticketCode: sale.ticketCode,
+      clientName: sale.clientName,
+      clientPhone: sale.clientPhone,
+      serviceName: sale.serviceName,
+      barberName: sale.barberName,
+      chairNumber: sale.chairNumber,
+      amount: sale.amount,
+      durationMinutes: sale.durationMinutes,
+      paymentMethod: (sale.paymentMethod as any) || 'YAPE',
+      notes: sale.notes || ''
+    });
+    setIsSaleCrudModalOpen(true);
+  };
+
+  const handleSaveSale = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!saleCrudForm.clientName.trim() || Number(saleCrudForm.amount) <= 0) return;
+
+    if (editingSaleTicket) {
+      setSalesHistory(prev => prev.map(s => s.id === editingSaleTicket.id ? {
+        ...s,
+        ticketCode: saleCrudForm.ticketCode,
+        clientName: saleCrudForm.clientName,
+        clientPhone: saleCrudForm.clientPhone,
+        serviceName: saleCrudForm.serviceName,
+        barberName: saleCrudForm.barberName,
+        chairNumber: Number(saleCrudForm.chairNumber),
+        amount: Number(saleCrudForm.amount),
+        durationMinutes: Number(saleCrudForm.durationMinutes),
+        paymentMethod: saleCrudForm.paymentMethod,
+        notes: saleCrudForm.notes
+      } : s));
+      showNotification(`Ticket #${saleCrudForm.ticketCode} actualizado con éxito`);
+    } else {
+      const newSale: SaleTicket = {
+        id: `tx-${Date.now()}`,
+        ticketCode: saleCrudForm.ticketCode || `C-${salesHistory.length + 10}`,
+        clientName: saleCrudForm.clientName,
+        clientPhone: saleCrudForm.clientPhone,
+        serviceName: saleCrudForm.serviceName,
+        barberName: saleCrudForm.barberName,
+        chairNumber: Number(saleCrudForm.chairNumber),
+        amount: Number(saleCrudForm.amount),
+        durationMinutes: Number(saleCrudForm.durationMinutes),
+        paymentMethod: saleCrudForm.paymentMethod,
+        createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        notes: saleCrudForm.notes
+      };
+      setSalesHistory(prev => [newSale, ...prev]);
+      showNotification(`Ticket #${newSale.ticketCode} registrado (S/. ${newSale.amount.toFixed(2)})`);
+    }
+    setIsSaleCrudModalOpen(false);
+  };
+
+  const handleDeleteSale = (id: string, code: string) => {
+    if (confirm(`¿Estás seguro de anular el ticket de venta #${code}?`)) {
+      setSalesHistory(prev => prev.filter(s => s.id !== id));
+      showNotification(`Ticket #${code} anulado`);
+    }
   };
 
   // Llamar cliente específico de la cola al sillón
@@ -1217,32 +1639,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            {/* Barber Activo en Turno con Selector Rápido */}
-            <div className="mt-4 bg-[#171A22] border border-[#252A38] rounded-xl p-2.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] uppercase font-bold text-[#7F8698] tracking-wider">
-                  Barbero en Sesión
+            {/* Perfil Fijo del Barbero en Sesión (Login Individual Estricto) */}
+            <div className="mt-4 bg-[#171A22] border border-[#282E3E] rounded-2xl p-3 shadow-md">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] uppercase font-extrabold text-[#7F8698] tracking-wider flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  Sesión Iniciada
                 </span>
-                <span className="text-[10px] uppercase font-bold text-secondary bg-secondary/10 px-2 py-0.5 rounded border border-secondary/20">
+                <span className="text-[10px] uppercase font-black text-frank-orange bg-frank-orange/15 px-2 py-0.5 rounded-md border border-frank-orange/30">
                   Sillón #{activeBarber.chairNumber}
                 </span>
               </div>
-              <select
-                value={activeBarberId}
-                onChange={(e) => {
-                  setActiveBarberId(e.target.value);
-                  localStorage.setItem('el_cartel_active_barber', e.target.value);
-                  const b = barbersList.find(x => x.id === e.target.value);
-                  if (b) showNotification(`Sesión cambiada a: ${b.name}`);
-                }}
-                className="w-full bg-[#0D0E11] border border-[#2A3040] rounded-lg px-2.5 py-1.5 text-xs text-white font-bold focus:outline-none focus:border-frank-orange cursor-pointer"
+
+              <div className="flex items-center gap-3 mb-3">
+                {activeBarber.photoUrl ? (
+                  <img
+                    src={activeBarber.photoUrl}
+                    alt={activeBarber.name}
+                    className="w-10 h-10 rounded-xl object-cover border border-[#383F54]"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-frank-orange/20 text-frank-orange font-bold flex items-center justify-center text-sm border border-frank-orange/30">
+                    {activeBarber.name.charAt(0)}
+                  </div>
+                )}
+                <div className="overflow-hidden">
+                  <div className="text-sm font-bold text-white truncate leading-tight">
+                    {activeBarber.name}
+                  </div>
+                  <div className="text-[11px] text-[#8C93A4] truncate font-medium">
+                    {activeBarber.specialty || 'Master Barber'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Botón QR de Estación */}
+              <button
+                type="button"
+                onClick={() => setIsStationQrOpen(true)}
+                className="w-full flex items-center justify-center gap-2 py-2 px-2.5 rounded-xl bg-[#0F1118] hover:bg-frank-orange hover:text-white border border-[#2B313E] text-xs font-bold text-frank-orange transition-all shadow-sm"
               >
-                {barbersList.map(b => (
-                  <option key={b.id} value={b.id}>
-                    {b.name} (Sillón #{b.chairNumber})
-                  </option>
-                ))}
-              </select>
+                <QrCode className="w-3.5 h-3.5" />
+                <span>QR de mi Sillón #{activeBarber.chairNumber}</span>
+              </button>
             </div>
           </div>
 
@@ -1472,10 +1911,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                 </div>
               ) : (
-                <div className="text-center py-8">
-                  <Scissors className="w-12 h-12 text-[#3A4050] mx-auto mb-3" />
-                  <p className="text-sm text-[#8C93A4]">No hay cliente en este sillón en este momento.</p>
-                  <p className="text-xs text-[#5C6375] mt-1">Selecciona al siguiente cliente de la cola unificada inferior para llamarlo al sillón.</p>
+                <div className="bg-[#151822] border-2 border-dashed border-[#2A3142] rounded-3xl p-8 sm:p-10 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-secondary/15 border border-secondary/30 flex items-center justify-center mx-auto mb-3 text-secondary">
+                    <Scissors className="w-8 h-8" />
+                  </div>
+                  <h4 className="font-display text-2xl font-bold text-white mb-1">
+                    Sillón #{activeBarber.chairNumber} Disponible
+                  </h4>
+                  <p className="text-xs sm:text-sm text-[#8C93A4] max-w-md mx-auto mb-6">
+                    El espacio está libre. Puedes seleccionar a tu próximo cliente según tus horarios agendados o por orden de llegada a tu propio criterio.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setIsAssignChairModalOpen(true)}
+                    className="py-3.5 px-6 bg-gradient-to-r from-frank-orange to-[#A84F22] hover:brightness-110 text-white font-extrabold uppercase text-xs tracking-wider rounded-2xl shadow-xl shadow-frank-orange/25 inline-flex items-center gap-2 transition-all hover:scale-105 active:scale-95 cursor-pointer"
+                  >
+                    <Play className="w-4 h-4" />
+                    <span>Asignar Próximo Cliente a mi Sillón</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -1488,61 +1941,100 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     COLA UNIFICADA EN VIVO
                   </h3>
                   <p className="text-xs text-[#7F8698]">
-                    Clientes en orden de llegada y citas programadas del día listos para atención
+                    Clientes en orden de llegada y citas programadas del día listos para atención. Presiona cualquier fila para ver la ficha completa.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setQueueFilter('my')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      queueFilter === 'my'
-                        ? 'bg-frank-orange text-white shadow-md shadow-frank-orange/20'
-                        : 'bg-[#181B25] text-[#8C93A4] hover:text-white border border-[#262B3A]'
-                    }`}
-                  >
-                    Mis Clientes ({activeBarber.name.split(' ')[0]}) ({filteredQueue.length})
-                  </button>
-                  <button
-                    onClick={() => setQueueFilter('all')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      queueFilter === 'all'
-                        ? 'bg-secondary text-white shadow-md shadow-secondary/20'
-                        : 'bg-[#181B25] text-[#8C93A4] hover:text-white border border-[#262B3A]'
-                    }`}
-                  >
-                    Cola General ({unifiedQueue.length})
-                  </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Selector Mis Clientes vs General */}
+                  <div className="bg-[#161922] p-1 rounded-xl border border-[#262B3A] flex items-center gap-1">
+                    <button
+                      onClick={() => setQueueFilter('my')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        queueFilter === 'my'
+                          ? 'bg-frank-orange text-white shadow-md shadow-frank-orange/20'
+                          : 'text-[#8C93A4] hover:text-white'
+                      }`}
+                    >
+                      Mis Clientes ({activeBarber.name.split(' ')[0]}) ({filteredQueue.length})
+                    </button>
+                    <button
+                      onClick={() => setQueueFilter('all')}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        queueFilter === 'all'
+                          ? 'bg-secondary text-white shadow-md shadow-secondary/20'
+                          : 'text-[#8C93A4] hover:text-white'
+                      }`}
+                    >
+                      Cola General ({unifiedQueue.length})
+                    </button>
+                  </div>
+
+                  {/* Sub-categorías: Todos / Citas / Llegada */}
+                  <div className="bg-[#161922] p-1 rounded-xl border border-[#262B3A] flex items-center gap-1">
+                    <button
+                      onClick={() => setQueueCategoryTab('all')}
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                        queueCategoryTab === 'all'
+                          ? 'bg-white text-black'
+                          : 'text-[#8C93A4] hover:text-white'
+                      }`}
+                    >
+                      Todos ({filteredQueue.length})
+                    </button>
+                    <button
+                      onClick={() => setQueueCategoryTab('appointments')}
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                        queueCategoryTab === 'appointments'
+                          ? 'bg-blue-500 text-white'
+                          : 'text-[#8C93A4] hover:text-white'
+                      }`}
+                    >
+                      📅 Citas ({scheduledQueueList.length})
+                    </button>
+                    <button
+                      onClick={() => setQueueCategoryTab('walkin')}
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                        queueCategoryTab === 'walkin'
+                          ? 'bg-emerald-600 text-white'
+                          : 'text-[#8C93A4] hover:text-white'
+                      }`}
+                    >
+                      🚶‍♂️ Llegada ({walkInQueueList.length})
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {filteredQueue.length === 0 ? (
+              {displayQueueList.length === 0 ? (
                 <div className="text-center py-10 text-[#6B7280]">
                   <CheckCircle2 className="w-8 h-8 text-secondary mx-auto mb-2" />
                   {queueFilter === 'my'
                     ? `¡No tienes turnos pendientes asignados a tu sillón (#${activeBarber.chairNumber})! Cambia a "Cola General" para atender turnos libres.`
-                    : '¡No hay clientes en espera en este momento! Todos los sillones están al día.'}
+                    : '¡No hay clientes en espera en esta sección! Todos los sillones están al día.'}
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {filteredQueue.map((item) => (
+                  {displayQueueList.map((item) => (
                     <div
                       key={item.id}
-                      className="flex flex-wrap items-center justify-between gap-4 p-4 bg-[#181B25] hover:bg-[#1D212E] border border-[#262B3A] rounded-2xl transition-all"
+                      onClick={() => handleOpenDetailFromQueue(item)}
+                      className="flex flex-wrap items-center justify-between gap-4 p-4 bg-[#181B25] hover:bg-[#1E2332] border border-[#262B3A] hover:border-frank-orange/50 rounded-2xl transition-all cursor-pointer group shadow-sm"
+                      title="Haz clic para ver todos los detalles registrados"
                     >
                       <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-[#222735] border border-[#2D3344] flex items-center justify-center font-display font-bold text-white text-base">
+                        <div className="w-10 h-10 rounded-xl bg-[#222735] border border-[#2D3344] group-hover:border-frank-orange/40 flex items-center justify-center font-display font-bold text-white text-base transition-colors">
                           #{item.position}
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-white text-sm">{item.clientName}</span>
-                            <span className="font-mono text-xs text-frank-orange bg-frank-orange/15 px-2 py-0.5 rounded">
+                            <span className="font-bold text-white text-sm group-hover:text-frank-gold transition-colors">{item.clientName}</span>
+                            <span className="font-mono text-xs text-frank-orange bg-frank-orange/15 px-2 py-0.5 rounded font-bold">
                               {item.ticketCode}
                             </span>
                             <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
                               item.type === 'CITA' ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                             }`}>
-                              {item.type === 'CITA' ? `Cita ${item.scheduledTime}` : 'Orden Llegada'}
+                              {item.type === 'CITA' ? `Cita ${item.scheduledTime || ''}` : 'Orden Llegada'}
                             </span>
                           </div>
                           <div className="text-xs text-[#7F8698] mt-0.5">
@@ -1552,10 +2044,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
 
                       {/* Acciones de Cola */}
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         {/* WhatsApp con Ticket */}
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             const livePhone = getClientCurrentPhone(item.clientName, item.clientPhone);
                             sendWhatsAppTicket(item.clientName, livePhone, item.ticketCode, item.position, item.estimatedWaitMin);
                           }}
@@ -1567,7 +2060,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                         {/* Posponer +15m */}
                         <button
-                          onClick={() => handleDelayQueueItem(item.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelayQueueItem(item.id);
+                          }}
                           className="px-2.5 py-2 bg-[#222735] hover:bg-[#2B3142] border border-[#2D3344] text-[#8C93A4] hover:text-white rounded-xl text-xs font-semibold transition-all"
                           title="Posponer turno"
                         >
@@ -1576,7 +2072,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                         {/* No-Show */}
                         <button
-                          onClick={() => handleNoShowQueueItem(item.id, item.clientName)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleNoShowQueueItem(item.id, item.clientName);
+                          }}
                           className="p-2 bg-red-950/30 hover:bg-red-900/60 border border-red-500/30 text-red-300 rounded-xl text-xs transition-all"
                           title="Marcar No-Show"
                         >
@@ -1585,7 +2084,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                         {/* Llamar a mi Sillón */}
                         <button
-                          onClick={() => handleCallClientDirectly(item)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleCallClientDirectly(item);
+                          }}
                           className="px-4 py-2 bg-frank-orange hover:brightness-110 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-frank-orange/20 flex items-center gap-1.5"
                         >
                           <Play className="w-3.5 h-3.5" />
@@ -1986,7 +2488,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             {/* Listado de Citas */}
             <div className="space-y-3">
-              {filteredAppointments.length === 0 ? (
+              {sortedAppointments.length === 0 ? (
                 <div className="bg-[#12141C] border border-[#222634] rounded-3xl p-12 text-center">
                   <Calendar className="w-12 h-12 text-[#4E566D] mx-auto mb-3" />
                   <h4 className="font-display text-xl font-bold text-white mb-1">
@@ -2015,10 +2517,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
                 </div>
               ) : (
-                filteredAppointments.map((apt) => {
+                sortedAppointments.map((apt) => {
                   const currentPhone = getClientCurrentPhone(apt.clientName, apt.clientPhone);
                   const cleanPhone = currentPhone.replace(/[^0-9]/g, '');
-                  const displayTime = formatAppointmentTime(apt.startTime);
+                  const displayTime = formatSlotDisplay(apt.startTime, apt.scheduledTime);
                   const barberDisplay = apt.barber?.name || activeBarber.name;
                   const chairDisplay = apt.barber?.chairNumber || activeBarber.chairNumber;
                   const serviceDisplay = apt.service?.name || 'Servicio Barbería';
@@ -2027,11 +2529,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   return (
                     <div
                       key={apt.id}
-                      className="flex flex-wrap items-center justify-between gap-4 p-5 bg-[#12141C] hover:bg-[#161924] border border-[#222634] hover:border-frank-orange/40 rounded-2xl transition-all shadow-md"
+                      onClick={() => handleOpenDetailFromAppointment(apt)}
+                      className="flex flex-wrap items-center justify-between gap-4 p-5 bg-[#12141C] hover:bg-[#161924] border border-[#222634] hover:border-frank-gold/50 rounded-2xl transition-all shadow-md cursor-pointer group"
+                      title="Haz clic para ver todos los detalles registrados"
                     >
                       {/* Información Izquierda */}
                       <div className="flex items-start gap-4">
-                        <div className="flex flex-col items-center justify-center p-3 bg-[#1A1D27] border border-[#282E3E] rounded-xl text-center min-w-[85px]">
+                        <div className="flex flex-col items-center justify-center p-3 bg-[#1A1D27] border border-[#282E3E] group-hover:border-frank-gold/40 rounded-xl text-center min-w-[95px] transition-colors">
                           <Clock className="w-4 h-4 text-frank-gold mb-1" />
                           <span className="font-mono text-xs font-bold text-white tracking-tight">
                             {displayTime}
@@ -2041,9 +2545,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                         <div>
                           <div className="flex items-center gap-2.5 flex-wrap">
-                            <h4 className="font-bold text-white text-base leading-none">
+                            <h4 className="font-bold text-white text-base leading-none group-hover:text-frank-gold transition-colors">
                               {apt.clientName}
                             </h4>
+                            {apt.ticketCode && (
+                              <span className="font-mono text-xs text-frank-orange bg-frank-orange/15 px-2 py-0.5 rounded font-bold">
+                                #{apt.ticketCode}
+                              </span>
+                            )}
                             {apt.isRegularClient && (
                               <span className="bg-frank-gold/15 text-frank-gold border border-frank-gold/30 px-2 py-0.5 rounded text-[10px] font-bold">
                                 CLIENTE FIJO
@@ -2080,7 +2589,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       </div>
 
                       {/* Botones de Acción */}
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         {/* WhatsApp Recordatorio */}
                         <a
                           href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(
@@ -2088,6 +2597,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           )}`}
                           target="_blank"
                           rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
                           className="px-3 py-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
                           title="Enviar recordatorio con horario y sillón por WhatsApp"
                         >
@@ -2098,7 +2608,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {/* Llamar al Sillón (si no está completada) */}
                         {apt.status !== 'COMPLETED' && (
                           <button
-                            onClick={() => handleSeatAppointment(apt)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSeatAppointment(apt);
+                            }}
                             className="px-3.5 py-2 bg-frank-orange hover:brightness-110 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-frank-orange/20"
                             title="Sentar al cliente en tu sillón ahora"
                           >
@@ -2110,7 +2623,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {/* Cobrar y Generar Ticket (si está en progreso o confirmada) */}
                         {apt.status === 'IN_PROGRESS' && (
                           <button
-                            onClick={() => handleFinishAppointmentCut(apt)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleFinishAppointmentCut(apt);
+                            }}
                             className="px-3.5 py-2 bg-secondary hover:brightness-110 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-secondary/20"
                             title="Cobrar servicio y generar ticket fiscal"
                           >
@@ -2120,10 +2636,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         )}
 
                         {/* Cambiar Estado */}
-                        <div className="relative inline-block">
+                        <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
                           <select
                             value={apt.status}
-                            onChange={(e) => handleUpdateAppointmentStatus(apt.id, e.target.value as any)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              handleUpdateAppointmentStatus(apt.id, e.target.value as any);
+                            }}
                             className="bg-[#1C202D] border border-[#2B3142] text-[#8C93A4] hover:text-white text-xs rounded-xl px-2.5 py-2 font-bold cursor-pointer focus:outline-none focus:border-frank-orange"
                           >
                             <option value="CONFIRMED">Confirmada</option>
@@ -2277,11 +2796,59 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            {/* HISTORIAL DE TICKETS DE VENTA EMITIDOS */}
-            <div className="bg-[#12141C] border border-[#222634] rounded-3xl p-6">
-              <h4 className="font-display text-xl font-bold text-white mb-4">
-                Comprobantes & Ventas Registradas Hoy
-              </h4>
+            {/* HISTORIAL Y CRUD DE TICKETS DE VENTA EMITIDOS */}
+            <div className="bg-[#12141C] border border-[#222634] rounded-3xl p-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h4 className="font-display text-xl font-bold text-white mb-1">
+                    Comprobantes & Tickets de Venta (CRUD)
+                  </h4>
+                  <p className="text-xs text-[#7F8698]">
+                    Historial de cobros, emisión de boletas digitales, ajuste de métodos de pago y ventas manuales.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleOpenNewSale}
+                  className="px-4 py-2.5 bg-gradient-to-r from-secondary to-emerald-600 hover:brightness-110 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-secondary/20 flex items-center gap-2"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>+ Registrar Venta Manual</span>
+                </button>
+              </div>
+
+              {/* Barra de Filtros y Búsqueda */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <div className="relative flex-1 min-w-[220px]">
+                  <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#6B7280]" />
+                  <input
+                    type="text"
+                    value={salesSearchQuery}
+                    onChange={(e) => setSalesSearchQuery(e.target.value)}
+                    placeholder="Buscar por cliente, ticket, servicio o barbero..."
+                    className="w-full bg-[#181B25] border border-[#262B3A] rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-[#6B7280] focus:outline-none focus:border-secondary"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5 bg-[#181B25] p-1 rounded-xl border border-[#262B3A]">
+                  {(['ALL', 'YAPE', 'PLIN', 'EFECTIVO', 'TARJETA'] as const).map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setSalesFilter(method)}
+                      className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${
+                        salesFilter === method
+                          ? 'bg-secondary text-white shadow-sm'
+                          : 'text-[#8C93A4] hover:text-white'
+                      }`}
+                    >
+                      {method === 'ALL' ? 'Todos los Pagos' : method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-[#181B25] text-[#7F8698] uppercase tracking-wider font-semibold border-b border-[#222634]">
@@ -2293,28 +2860,82 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="py-3 px-4 text-center">Duración</th>
                       <th className="py-3 px-4">Pago</th>
                       <th className="py-3 px-4 text-right">Monto</th>
+                      <th className="py-3 px-4 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#1D212D]">
-                    {salesHistory.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-[#161922] transition-colors">
-                        <td className="py-3 px-4 font-mono text-[#8C93A4]">{tx.createdAt}</td>
-                        <td className="py-3 px-4 font-mono font-bold text-frank-orange">{tx.ticketCode}</td>
-                        <td className="py-3 px-4 font-bold text-white">{tx.clientName}</td>
-                        <td className="py-3 px-4 text-[#A0A6B8]">
-                          {tx.serviceName} · <span className="text-xs text-frank-gold font-semibold">{tx.barberName}</span>
-                        </td>
-                        <td className="py-3 px-4 text-center font-mono">{tx.durationMinutes} min</td>
-                        <td className="py-3 px-4">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#1B1E29] border border-[#2C3142] text-[#8C93A4]">
-                            {tx.paymentMethod}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-secondary">
-                          S/. {tx.amount.toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
+                    {salesHistory
+                      .filter((tx) => {
+                        const q = salesSearchQuery.toLowerCase();
+                        const matchSearch =
+                          tx.clientName.toLowerCase().includes(q) ||
+                          tx.ticketCode.toLowerCase().includes(q) ||
+                          tx.serviceName.toLowerCase().includes(q) ||
+                          tx.barberName.toLowerCase().includes(q);
+                        const matchFilter = salesFilter === 'ALL' || tx.paymentMethod === salesFilter;
+                        return matchSearch && matchFilter;
+                      })
+                      .map((tx) => (
+                        <tr key={tx.id} className="hover:bg-[#161922] transition-colors">
+                          <td className="py-3 px-4 font-mono text-[#8C93A4]">{tx.createdAt}</td>
+                          <td className="py-3 px-4 font-mono font-bold text-frank-orange">#{tx.ticketCode}</td>
+                          <td className="py-3 px-4 font-bold text-white">
+                            <div>{tx.clientName}</div>
+                            {tx.clientPhone && <div className="text-[10px] text-[#7F8698] font-mono">{tx.clientPhone}</div>}
+                          </td>
+                          <td className="py-3 px-4 text-[#A0A6B8]">
+                            <div>{tx.serviceName}</div>
+                            <div className="text-[11px] text-frank-gold font-semibold">
+                              {tx.barberName} {tx.chairNumber ? `(Sillón #${tx.chairNumber})` : ''}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono">{tx.durationMinutes} min</td>
+                          <td className="py-3 px-4">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-[#1B1E29] border border-[#2C3142] text-white">
+                              {tx.paymentMethod}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono font-bold text-secondary text-sm">
+                            S/. {tx.amount.toFixed(2)}
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1.5">
+                              {/* Ver Boleta Digital */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveReceipt(tx);
+                                  setIsReceiptModalOpen(true);
+                                }}
+                                className="p-1.5 bg-blue-500/15 hover:bg-blue-500 hover:text-white text-blue-400 rounded-lg transition-all"
+                                title="Ver Boleta Digital"
+                              >
+                                <Receipt className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Editar Venta */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditSale(tx)}
+                                className="p-1.5 bg-[#1F2330] hover:bg-[#2B3142] text-frank-gold hover:text-white rounded-lg transition-all"
+                                title="Editar Ticket de Venta"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+
+                              {/* Anular Venta */}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSale(tx.id, tx.ticketCode)}
+                                className="p-1.5 bg-red-950/30 hover:bg-red-900/60 text-red-300 rounded-lg transition-all"
+                                title="Anular Comprobante"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
@@ -2324,63 +2945,200 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       </main>
 
       {/* ---------------------------------------------------- */}
-      {/* MODAL: TICKET DE VENTA / COBRO DE SERVICIO          */}
+      {/* MODAL: COMPROBANTE DIGITAL / BOLETA FISCAL          */}
       {/* ---------------------------------------------------- */}
-      {isReceiptModalOpen && activeReceipt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+      <DigitalInvoiceModal
+        isOpen={isReceiptModalOpen}
+        onClose={() => setIsReceiptModalOpen(false)}
+        receipt={activeReceipt}
+        onConfirmPaymentAndFreeChair={handleConfirmPaymentAndFreeChair}
+        onSendWhatsApp={sendWhatsAppReceipt}
+      />
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: FICHA & DETALLE COMPLETO DEL CLIENTE         */}
+      {/* ---------------------------------------------------- */}
+      <ClientTicketDetailModal
+        isOpen={isDetailModalOpen}
+        onClose={() => setIsDetailModalOpen(false)}
+        item={detailModalItem}
+        activeBarber={activeBarber}
+        onCallToChair={(item) => {
+          setIsDetailModalOpen(false);
+          const queueMatch = unifiedQueue.find(q => q.id === item.id || q.ticketCode === item.ticketCode);
+          if (queueMatch) {
+            handleCallClientDirectly(queueMatch);
+          } else {
+            setChairClient({
+              ticketCode: item.ticketCode,
+              clientName: item.clientName,
+              clientPhone: item.clientPhone,
+              serviceName: item.serviceName,
+              servicePrice: item.servicePrice,
+              startedAt: Date.now()
+            });
+            setTimerSeconds(0);
+            showNotification(`¡${item.clientName} llamado al sillón #${activeBarber.chairNumber}!`);
+          }
+        }}
+        onSendWhatsApp={(item) => {
+          if (item.type === 'CITA') {
+            const cleanPhone = item.clientPhone.replace(/[^0-9]/g, '');
+            window.open(
+              `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
+                `Hola ${item.clientName}, te saluda ${item.barberName} de EL CARTEL BARBERSHOP. Te recordamos tu cita para ${item.serviceName} a las ${item.scheduledTime || ''}. ¡Te esperamos en el Sillón #${item.chairNumber || activeBarber.chairNumber}!`
+              )}`,
+              '_blank'
+            );
+          } else {
+            sendWhatsAppTicket(item.clientName, item.clientPhone, item.ticketCode, item.position || 1, item.estimatedWaitMin || 20);
+          }
+        }}
+        onDelay={(id) => {
+          setIsDetailModalOpen(false);
+          handleDelayQueueItem(id);
+        }}
+      />
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: ASIGNAR CLIENTE AL SILLÓN LIBRE             */}
+      {/* ---------------------------------------------------- */}
+      <AssignChairModal
+        isOpen={isAssignChairModalOpen}
+        onClose={() => setIsAssignChairModalOpen(false)}
+        activeBarber={activeBarber}
+        scheduledClients={scheduledQueueList}
+        walkInClients={walkInQueueList}
+        onSelectClient={handleSelectClientForChair}
+      />
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: CRUD DE TICKET DE VENTA / BOLETA MANUAL       */}
+      {/* ---------------------------------------------------- */}
+      {isSaleCrudModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
           <div className="bg-[#151821] border border-[#2A3040] w-full max-w-md rounded-3xl p-6 shadow-2xl relative">
             <button
-              onClick={() => setIsReceiptModalOpen(false)}
+              onClick={() => setIsSaleCrudModalOpen(false)}
               className="absolute top-5 right-5 text-[#7F8698] hover:text-white"
             >
               <X className="w-5 h-5" />
             </button>
-
-            <div className="text-center pb-4 border-b border-[#252A38] mb-5">
-              <div className="w-12 h-12 rounded-2xl bg-secondary/15 border border-secondary/30 flex items-center justify-center mx-auto mb-2 text-secondary">
-                <Receipt className="w-6 h-6" />
-              </div>
-              <h3 className="font-display text-2xl font-bold text-white">
-                TICKET DE VENTA & COBRO
-              </h3>
-              <p className="text-xs text-[#7F8698]">EL CARTEL BARBERSHOP · Comprobante Digital</p>
+            <div className="flex items-center gap-2 text-secondary font-bold text-xs uppercase tracking-wider mb-1">
+              <Receipt className="w-4 h-4 text-secondary" />
+              <span>{editingSaleTicket ? 'EDITAR VENTA' : 'NUEVO COBRO MANUAL'}</span>
             </div>
+            <h3 className="font-display text-2xl font-bold text-white mb-4">
+              {editingSaleTicket ? 'Editar Ticket de Venta' : 'Registrar Venta / Boleta'}
+            </h3>
 
-            <div className="space-y-3 bg-[#1C202C] p-4 rounded-2xl border border-[#262B3A] text-xs">
-              <div className="flex justify-between">
-                <span className="text-[#7F8698]">Ticket / Turno:</span>
-                <span className="font-mono font-bold text-frank-orange">#{activeReceipt.ticketCode}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#7F8698]">Cliente:</span>
-                <span className="font-bold text-white">{activeReceipt.clientName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#7F8698]">Servicio:</span>
-                <span className="font-semibold text-white">{activeReceipt.serviceName}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#7F8698]">Barbero:</span>
-                <span className="font-semibold text-frank-gold">{activeReceipt.barberName} (Sillón #{activeReceipt.chairNumber})</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[#7F8698]">Tiempo Real en Sillón:</span>
-                <span className="font-mono font-bold text-white">{activeReceipt.durationMinutes} minutos</span>
+            <form onSubmit={handleSaveSale} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Código Ticket</label>
+                  <input
+                    type="text"
+                    required
+                    value={saleCrudForm.ticketCode}
+                    onChange={(e) => setSaleCrudForm({ ...saleCrudForm, ticketCode: e.target.value })}
+                    placeholder="Ej: C-99"
+                    className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-3 py-2 text-xs text-white font-mono font-bold focus:outline-none focus:border-secondary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Sillón / Barbero</label>
+                  <select
+                    value={saleCrudForm.barberName}
+                    onChange={(e) => {
+                      const found = barbersList.find(b => b.name === e.target.value);
+                      setSaleCrudForm({
+                        ...saleCrudForm,
+                        barberName: e.target.value,
+                        chairNumber: found?.chairNumber || activeBarber.chairNumber
+                      });
+                    }}
+                    className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-secondary cursor-pointer"
+                  >
+                    {barbersList.map(b => (
+                      <option key={b.id} value={b.name}>{b.name} (Sillón #{b.chairNumber})</option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
-              {/* Selector de Método de Pago */}
-              <div className="pt-2 border-t border-[#262B3A]">
-                <label className="text-[#7F8698] block mb-1.5 font-semibold">Método de Pago:</label>
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Nombre del Cliente *</label>
+                <input
+                  type="text"
+                  required
+                  value={saleCrudForm.clientName}
+                  onChange={(e) => setSaleCrudForm({ ...saleCrudForm, clientName: e.target.value })}
+                  placeholder="Ej: Rodrigo Santillán"
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-secondary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Teléfono / WhatsApp</label>
+                <input
+                  type="tel"
+                  value={saleCrudForm.clientPhone}
+                  onChange={(e) => setSaleCrudForm({ ...saleCrudForm, clientPhone: e.target.value })}
+                  placeholder="+51 987 654 321"
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white font-mono focus:outline-none focus:border-secondary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Servicio Realizado</label>
+                <input
+                  type="text"
+                  required
+                  value={saleCrudForm.serviceName}
+                  onChange={(e) => setSaleCrudForm({ ...saleCrudForm, serviceName: e.target.value })}
+                  placeholder="Ej: Fade Urbano Cartel"
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-secondary"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Monto Pagado (S/.) *</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min="1"
+                    required
+                    value={saleCrudForm.amount}
+                    onChange={(e) => setSaleCrudForm({ ...saleCrudForm, amount: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white font-mono font-bold focus:outline-none focus:border-secondary"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Duración (Minutos)</label>
+                  <input
+                    type="number"
+                    step="5"
+                    min="5"
+                    value={saleCrudForm.durationMinutes}
+                    onChange={(e) => setSaleCrudForm({ ...saleCrudForm, durationMinutes: parseInt(e.target.value) || 25 })}
+                    className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white font-mono focus:outline-none focus:border-secondary"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Método de Pago</label>
                 <div className="grid grid-cols-4 gap-2">
                   {(['YAPE', 'PLIN', 'EFECTIVO', 'TARJETA'] as const).map((method) => (
                     <button
                       key={method}
                       type="button"
-                      onClick={() => setActiveReceipt({ ...activeReceipt, paymentMethod: method })}
-                      className={`py-1.5 px-2 rounded-lg font-bold text-[10px] transition-all border ${
-                        activeReceipt.paymentMethod === method
-                          ? 'bg-frank-orange text-white border-frank-orange'
-                          : 'bg-[#14161F] text-[#8C93A4] border-[#2A3040] hover:text-white'
+                      onClick={() => setSaleCrudForm({ ...saleCrudForm, paymentMethod: method })}
+                      className={`py-2 rounded-xl text-[11px] font-bold transition-all border ${
+                        saleCrudForm.paymentMethod === method
+                          ? 'bg-secondary text-white border-secondary'
+                          : 'bg-[#181B25] text-[#8C93A4] border-[#2A3040] hover:text-white'
                       }`}
                     >
                       {method}
@@ -2389,32 +3147,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
-              {/* Monto Total */}
-              <div className="pt-3 border-t border-[#262B3A] flex justify-between items-center">
-                <span className="text-sm font-bold text-white uppercase">Total a Cobrar:</span>
-                <span className="font-display text-3xl font-bold text-secondary">
-                  S/. {activeReceipt.amount.toFixed(2)}
-                </span>
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Notas / Observaciones</label>
+                <input
+                  type="text"
+                  value={saleCrudForm.notes}
+                  onChange={(e) => setSaleCrudForm({ ...saleCrudForm, notes: e.target.value })}
+                  placeholder="Detalles adicionales del cobro"
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-secondary"
+                />
               </div>
-            </div>
 
-            <div className="mt-5 space-y-2">
-              <button
-                onClick={handleConfirmPaymentAndCallNext}
-                className="w-full py-3.5 bg-gradient-to-r from-secondary to-emerald-600 hover:brightness-110 text-white font-extrabold uppercase text-xs tracking-wider rounded-xl shadow-lg shadow-secondary/20 flex items-center justify-center gap-2"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Confirmar Cobro y Llamar Siguiente</span>
-              </button>
-
-              <button
-                onClick={() => sendWhatsAppReceipt(activeReceipt)}
-                className="w-full py-2.5 bg-emerald-500/15 hover:bg-emerald-500 hover:text-white border border-emerald-500/30 text-emerald-400 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all"
-              >
-                <MessageSquare className="w-4 h-4" />
-                <span>Enviar Comprobante por WhatsApp</span>
-              </button>
-            </div>
+              <div className="pt-3 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSaleCrudModalOpen(false)}
+                  className="px-4 py-2 bg-[#1C202C] text-xs text-[#8C93A4] hover:text-white rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-gradient-to-r from-secondary to-emerald-600 hover:brightness-110 text-white text-xs font-bold rounded-xl shadow-lg shadow-secondary/20"
+                >
+                  Guardar Venta
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -2482,6 +3241,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <option value="ARTE">ARTE / FREESTYLE</option>
                   <option value="TRATAMIENTOS">TRATAMIENTOS</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Barbero Asignado (Catálogo Landing)</label>
+                <select
+                  value={serviceForm.barberId}
+                  onChange={(e) => setServiceForm({ ...serviceForm, barberId: e.target.value })}
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-frank-orange cursor-pointer"
+                >
+                  <option value="">Disponible para cualquier barbero</option>
+                  {barbersList.map(b => (
+                    <option key={b.id} value={b.id}>
+                      {b.name} (Sillón #{b.chairNumber} · {b.specialty})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">URL de Imagen del Corte (Opcional)</label>
+                <input
+                  type="url"
+                  value={serviceForm.imageUrl}
+                  onChange={(e) => setServiceForm({ ...serviceForm, imageUrl: e.target.value })}
+                  placeholder="https://images.unsplash.com/..."
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-frank-orange font-mono"
+                />
               </div>
 
               <div>
@@ -2935,6 +3721,74 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: CÓDIGO QR DE LA ESTACIÓN / SILLÓN             */}
+      {/* ---------------------------------------------------- */}
+      {isStationQrOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#12141C] border border-[#2B313E] w-full max-w-md rounded-3xl p-6 sm:p-8 shadow-2xl relative text-center overflow-hidden">
+            <div className="absolute -top-16 -right-16 w-36 h-36 bg-frank-orange/15 rounded-full blur-2xl pointer-events-none" />
+            
+            <button
+              onClick={() => setIsStationQrOpen(false)}
+              className="absolute top-5 right-5 w-8 h-8 rounded-xl bg-[#1C202C] text-[#8C93A4] hover:text-white flex items-center justify-center border border-[#2A3040]"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-frank-orange/15 border border-frank-orange/30 text-frank-orange text-[10px] font-black uppercase tracking-wider mb-3">
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Sillón #{activeBarber.chairNumber} · {activeBarber.name}</span>
+            </div>
+
+            <h3 className="font-display text-2xl sm:text-3xl font-bold text-white mb-2">
+              CÓDIGO QR DE MI SILLÓN
+            </h3>
+            <p className="text-xs text-[#8A8F9E] mb-6 max-w-xs mx-auto">
+              Coloca este código QR en tu estación o espejo. Al escanearlo desde su celular, los clientes que lleguen o quieran reservar accederán directamente a tu catálogo de servicios y entrarán a tu cola.
+            </p>
+
+            {/* QR Code Container */}
+            <div className="bg-white p-4 rounded-2xl inline-block shadow-2xl border-4 border-frank-orange/30 mb-6">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(
+                  `${typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}?barberId=${activeBarber.id}#reservar`
+                )}`}
+                alt="QR Code Station"
+                className="w-48 h-48 sm:w-52 sm:h-52 object-contain"
+              />
+            </div>
+
+            {/* Quick Actions */}
+            <div className="space-y-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  const url = `${typeof window !== 'undefined' ? window.location.origin + window.location.pathname : ''}?barberId=${activeBarber.id}#reservar`;
+                  navigator.clipboard.writeText(url);
+                  setCopiedLink(true);
+                  showNotification('¡Enlace de reserva directa copiado al portapapeles!');
+                  setTimeout(() => setCopiedLink(false), 2500);
+                }}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-frank-orange to-[#A84F22] hover:brightness-110 text-white font-bold text-xs shadow-lg shadow-frank-orange/20 transition-all"
+              >
+                {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <span>{copiedLink ? '¡Enlace Copiado!' : 'Copiar Enlace de Reserva Directa'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#1A1D27] hover:bg-[#232734] border border-[#2B313E] text-xs font-bold text-[#8C93A4] hover:text-white transition-all"
+              >
+                <Printer className="w-4 h-4 text-frank-orange" />
+                <span>Imprimir Cartel QR para el Espejo</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

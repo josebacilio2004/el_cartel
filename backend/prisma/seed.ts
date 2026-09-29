@@ -41,44 +41,115 @@ async function main() {
     }
   });
 
-  console.log('--- Creando Servicios Oficiales EL CARTEL ---');
+  console.log('--- Creando Servicios Oficiales EL CARTEL por Barbero ---');
+  // Servicios de Frank Master (Sillón #1)
   const serviceFade = await prisma.service.create({
     data: {
       name: 'Fade Urbano Cartel',
-      description: 'Degradados altos, medios o bajos con navaja.',
+      description: 'Degradados altos, medios o bajos con navaja y texturizado.',
       durationMinutes: 35,
       price: 35.00,
-      category: 'CORTES'
-    }
-  });
-
-  const serviceClassic = await prisma.service.create({
-    data: {
-      name: 'Corte Clásico Ejecutivo',
-      description: 'Corte tradicional con tijera y peinado.',
-      durationMinutes: 30,
-      price: 30.00,
-      category: 'CORTES'
+      category: 'CORTES',
+      imageUrl: 'https://images.unsplash.com/photo-1622286342621-4bd786c2447c?w=600&auto=format&fit=crop&q=80',
+      barberId: barberFrank.id
     }
   });
 
   const serviceBeard = await prisma.service.create({
     data: {
       name: 'Ritual Barba & Toalla Caliente',
-      description: 'Perfilado con navaja, toalla caliente y aceites.',
+      description: 'Perfilado con navaja, toalla caliente y aceites esenciales.',
       durationMinutes: 25,
       price: 25.00,
-      category: 'BARBA'
+      category: 'BARBA',
+      imageUrl: 'https://images.unsplash.com/photo-1621605815971-fbc98d665033?w=600&auto=format&fit=crop&q=80',
+      barberId: barberFrank.id
     }
   });
 
   const serviceCombo = await prisma.service.create({
     data: {
       name: 'Combo El Cartel (Corte + Barba)',
-      description: 'Corte completo más ritual de barba.',
+      description: 'Corte completo más ritual de barba premium con vapor de ozono.',
       durationMinutes: 50,
       price: 50.00,
-      category: 'COMBOS'
+      category: 'COMBOS',
+      imageUrl: 'https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=600&auto=format&fit=crop&q=80',
+      barberId: barberFrank.id
+    }
+  });
+
+  // Servicios de Mateo Fade (Sillón #2)
+  const serviceBuzz = await prisma.service.create({
+    data: {
+      name: 'Buzz Cut + Diseños Tribales',
+      description: 'Corte al ras con grecas urbanas y líneas precisas.',
+      durationMinutes: 35,
+      price: 35.00,
+      category: 'ARTE',
+      imageUrl: 'https://images.unsplash.com/photo-1599351431202-1e0f0137899a?w=600&auto=format&fit=crop&q=80',
+      barberId: barberMateo.id
+    }
+  });
+
+  const serviceTaper = await prisma.service.create({
+    data: {
+      name: 'Taper Fade Texturizado',
+      description: 'Degradado en patillas y nuca con caída texturizada en cúspide.',
+      durationMinutes: 35,
+      price: 35.00,
+      category: 'CORTES',
+      imageUrl: 'https://images.unsplash.com/photo-1517832606589-7629c3397143?w=600&auto=format&fit=crop&q=80',
+      barberId: barberMateo.id
+    }
+  });
+
+  const serviceFreestyle = await prisma.service.create({
+    data: {
+      name: 'Freestyle Urbano + Cejas',
+      description: 'Diseño libre personalizado en laterales y perfilado de cejas.',
+      durationMinutes: 30,
+      price: 40.00,
+      category: 'ARTE',
+      imageUrl: 'https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=600&auto=format&fit=crop&q=80',
+      barberId: barberMateo.id
+    }
+  });
+
+  // Servicios de Santi Style (Sillón #3)
+  const serviceClassic = await prisma.service.create({
+    data: {
+      name: 'Corte Clásico Ejecutivo',
+      description: 'Tijera pura y peinado tradicional elegante.',
+      durationMinutes: 30,
+      price: 30.00,
+      category: 'CORTES',
+      imageUrl: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=600&auto=format&fit=crop&q=80',
+      barberId: barberSanti.id
+    }
+  });
+
+  const servicePompadour = await prisma.service.create({
+    data: {
+      name: 'Pompadour Clásico & Peinado',
+      description: 'Estilo pompadour con brillo formal o mate de fijación fuerte.',
+      durationMinutes: 35,
+      price: 35.00,
+      category: 'CORTES',
+      imageUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=600&auto=format&fit=crop&q=80',
+      barberId: barberSanti.id
+    }
+  });
+
+  const serviceKeratina = await prisma.service.create({
+    data: {
+      name: 'Alisado & Keratina Masculina',
+      description: 'Tratamiento alisador termoactivo y nutrición capilar profunda.',
+      durationMinutes: 60,
+      price: 60.00,
+      category: 'TRATAMIENTOS',
+      imageUrl: 'https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=600&auto=format&fit=crop&q=80',
+      barberId: barberSanti.id
     }
   });
 

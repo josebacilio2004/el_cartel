@@ -41,6 +41,7 @@ model Barber {
 
   tickets      Ticket[]
   appointments Appointment[]
+  services     Service[]
 
   @@map("barbers")
 }
@@ -52,8 +53,12 @@ model Service {
   durationMinutes Int            @default(30) @map("duration_minutes")
   price           Decimal        @db.Decimal(10, 2)
   category        String         @default("HAIRCUT")
+  imageUrl        String?        @map("image_url")
   isActive        Boolean        @default(true) @map("is_active")
   createdAt       DateTime       @default(now()) @map("created_at")
+
+  barberId        String?        @map("barber_id")
+  barber          Barber?        @relation(fields: [barberId], references: [id], onDelete: SetNull)
 
   tickets         Ticket[]
   appointments    Appointment[]
@@ -73,6 +78,8 @@ model Ticket {
   status               TicketStatus  @default(WAITING)
   positionInQueue      Int           @default(1) @map("position_in_queue")
   estimatedWaitMinutes Int           @default(15) @map("estimated_wait_minutes")
+  scheduledTime        String?       @map("scheduled_time")
+  ticketType           String?       @default("LLEGADA") @map("ticket_type")
   calledAt             DateTime?     @map("called_at")
   startedAt            DateTime?     @map("started_at")
   completedAt          DateTime?     @map("completed_at")
