@@ -98,15 +98,39 @@ export class QueueService {
     });
 
     const sequenceNum = countToday + 1;
-    const ticketCode = `B-${sequenceNum < 10 ? '0' + sequenceNum : sequenceNum}`;
+    const ticketCode = `C-${sequenceNum < 10 ? '0' + sequenceNum : sequenceNum}`;
 
-    // Obtener servicio para saber duración
-    const service = await prisma.service.findUnique({
-      where: { id: data.serviceId }
-    });
+    // Obtener servicio para saber duración con fallback seguro
+    let service = null;
+    try {
+      service = await prisma.service.findUnique({
+        where: { id: data.serviceId }
+      });
+    } catch (e) {
+      // Ignorar formato no-uuid
+    }
+
+    if (!service) {
+      service = await prisma.service.findFirst({
+        where: { isActive: true }
+      });
+    }
 
     if (!service) {
       throw new Error('Servicio no encontrado');
+    }
+
+    // Validar barbero con fallback seguro
+    let validBarberId: string | null = null;
+    if (data.barberId) {
+      try {
+        const barber = await prisma.barber.findUnique({
+          where: { id: data.barberId }
+        });
+        if (barber) validBarberId = barber.id;
+      } catch (e) {
+        // Ignorar formato no-uuid
+      }
     }
 
     // Calcular posición actual en la fila
@@ -118,16 +142,16 @@ export class QueueService {
     });
 
     const position = currentWaitingCount + 1;
-    // Estimación: 20 min base por persona delante + buffer
+    // Estimación: 18 min base por persona delante
     const estimatedWait = Math.max(10, position * 18);
 
     const newTicket = await prisma.ticket.create({
       data: {
         ticketCode,
-        clientName: data.clientName,
-        clientPhone: data.clientPhone || '',
-        serviceId: data.serviceId,
-        barberId: data.barberId || null,
+        clientName: data.clientName.trim(),
+        clientPhone: data.clientPhone ? data.clientPhone.trim() : '',
+        serviceId: service.id,
+        barberId: validBarberId,
         status: TicketStatus.WAITING,
         positionInQueue: position,
         estimatedWaitMinutes: estimatedWait
