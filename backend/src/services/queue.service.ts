@@ -390,6 +390,29 @@ export class QueueService {
 
     return { success: true, message: `Teléfono de ${name} actualizado a ${phone}` };
   }
+
+  /**
+   * Obtiene citas programadas filtrando opcionalmente por barbero
+   */
+  public async getAppointments(barberId?: string) {
+    const whereClause: any = {};
+    if (barberId) {
+      whereClause.barberId = barberId;
+    }
+
+    const appointments = await prisma.appointment.findMany({
+      where: whereClause,
+      include: {
+        barber: true,
+        service: true
+      },
+      orderBy: {
+        startTime: 'asc'
+      }
+    });
+
+    return appointments;
+  }
 }
 
 export const queueService = new QueueService();

@@ -100,6 +100,16 @@ export class QueueController {
       res.status(500).json({ error: error.message });
     }
   }
+
+  public async getAppointments(req: Request, res: Response) {
+    try {
+      const barberId = req.query.barberId as string | undefined;
+      const appointments = await queueService.getAppointments(barberId);
+      res.json(appointments);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
 }
 
 export const queueController = new QueueController();

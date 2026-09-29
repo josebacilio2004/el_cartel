@@ -85,3 +85,19 @@ export interface QueueStatus {
   barbers: Barber[];
   settings: ShopSetting;
 }
+
+export interface AppointmentRecord {
+  id: string;
+  clientName: string;
+  clientPhone: string;
+  barberId: string;
+  serviceId: string;
+  startTime: string;
+  endTime: string;
+  status: 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  isRegularClient?: boolean;
+  notes?: string;
+  barber?: Barber;
+  service?: Service;
+}
+

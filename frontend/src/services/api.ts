@@ -1,4 +1,4 @@
-import { QueueStatus, Barber, Service, Ticket, ClientRecord } from '../types';
+import { QueueStatus, Barber, Service, Ticket, ClientRecord, AppointmentRecord } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -232,3 +232,160 @@ export function subscribeToQueueUpdates(onUpdate: (data: QueueStatus) => void): 
     eventSource.close();
   };
 }
+
+/**
+ * Obtener citas agendadas independientes por barbero (sincronizado con Seeder de BD)
+ */
+export async function fetchAppointments(barberId?: string): Promise<AppointmentRecord[]> {
+  try {
+    const url = barberId ? `${API_BASE}/api/queue/appointments?barberId=${barberId}` : `${API_BASE}/api/queue/appointments`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        return data;
+      }
+    }
+  } catch (err) {
+    console.warn('Backend appointments offline/demo fallback:', err);
+  }
+
+  // Fallback idéntico al Seeder oficial de Prisma
+  const today = new Date();
+  const formatTime = (hours: number, minutes: number) => {
+    const d = new Date(today);
+    d.setHours(hours, minutes, 0, 0);
+    return d.toISOString();
+  };
+
+  const seedAppointments: AppointmentRecord[] = [
+    // 1. Frank Master (b1 / Sillon 1)
+    {
+      id: 'apt-frank-1',
+      clientName: 'Alonso Vera',
+      clientPhone: '+51 987 111 222',
+      barberId: 'b1',
+      serviceId: 's1',
+      startTime: formatTime(11, 0),
+      endTime: formatTime(11, 45),
+      status: 'COMPLETED',
+      notes: 'Cliente fijo. Fade alto y navaja.',
+      barber: { id: 'b1', name: 'Frank Master', chairNumber: 1, specialty: 'Fades & Ritual de Barba', status: 'ACTIVE' },
+      service: { id: 's1', name: 'Fade Urbano + Barba Perfilada', price: 45, durationMinutes: 45, category: 'CORTES', isActive: true }
+    },
+    {
+      id: 'apt-frank-2',
+      clientName: 'Rodrigo Santillán',
+      clientPhone: '+51 922 431 880',
+      barberId: 'b1',
+      serviceId: 's3',
+      startTime: formatTime(16, 30),
+      endTime: formatTime(17, 0),
+      status: 'CONFIRMED',
+      notes: 'Socio VIP. Toalla caliente y aceites.',
+      barber: { id: 'b1', name: 'Frank Master', chairNumber: 1, specialty: 'Fades & Ritual de Barba', status: 'ACTIVE' },
+      service: { id: 's3', name: 'Ritual Barba & Toalla Caliente', price: 25, durationMinutes: 25, category: 'BARBA', isActive: true }
+    },
+    {
+      id: 'apt-frank-3',
+      clientName: 'Gianfranco Rossi',
+      clientPhone: '+51 998 776 554',
+      barberId: 'b1',
+      serviceId: 's4',
+      startTime: formatTime(18, 30),
+      endTime: formatTime(19, 20),
+      status: 'CONFIRMED',
+      notes: 'Corte completo y barba perfilada.',
+      barber: { id: 'b1', name: 'Frank Master', chairNumber: 1, specialty: 'Fades & Ritual de Barba', status: 'ACTIVE' },
+      service: { id: 's4', name: 'Combo El Cartel (Corte + Barba)', price: 50, durationMinutes: 50, category: 'COMBOS', isActive: true }
+    },
+
+    // 2. Mateo Fade (b2 / Sillon 2)
+    {
+      id: 'apt-mateo-1',
+      clientName: 'Kevin Salcedo',
+      clientPhone: '+51 992 334 455',
+      barberId: 'b2',
+      serviceId: 's5',
+      startTime: formatTime(13, 30),
+      endTime: formatTime(14, 15),
+      status: 'IN_PROGRESS',
+      notes: 'Buzz Cut con diseños tribales en lateral.',
+      barber: { id: 'b2', name: 'Mateo Fade', chairNumber: 2, specialty: 'Diseños Urbanos & Taper', status: 'ACTIVE' },
+      service: { id: 's5', name: 'Buzz Cut + Diseños Tribales', price: 35, durationMinutes: 35, category: 'ARTE', isActive: true }
+    },
+    {
+      id: 'apt-mateo-2',
+      clientName: 'Christian Benavides',
+      clientPhone: '+51 983 445 566',
+      barberId: 'b2',
+      serviceId: 's1',
+      startTime: formatTime(15, 45),
+      endTime: formatTime(16, 30),
+      status: 'CONFIRMED',
+      notes: 'Taper Fade texturizado.',
+      barber: { id: 'b2', name: 'Mateo Fade', chairNumber: 2, specialty: 'Diseños Urbanos & Taper', status: 'ACTIVE' },
+      service: { id: 's1', name: 'Fade Urbano Cartel', price: 35, durationMinutes: 35, category: 'CORTES', isActive: true }
+    },
+    {
+      id: 'apt-mateo-3',
+      clientName: 'Bryan Palacios',
+      clientPhone: '+51 974 556 677',
+      barberId: 'b2',
+      serviceId: 's4',
+      startTime: formatTime(17, 15),
+      endTime: formatTime(18, 5),
+      status: 'CONFIRMED',
+      notes: 'Freestyle urbano + cejas.',
+      barber: { id: 'b2', name: 'Mateo Fade', chairNumber: 2, specialty: 'Diseños Urbanos & Taper', status: 'ACTIVE' },
+      service: { id: 's4', name: 'Combo El Cartel (Corte + Barba)', price: 50, durationMinutes: 50, category: 'COMBOS', isActive: true }
+    },
+
+    // 3. Santi Style (b3 / Sillon 3)
+    {
+      id: 'apt-santi-1',
+      clientName: 'Renato Silva',
+      clientPhone: '+51 933 222 111',
+      barberId: 'b3',
+      serviceId: 's2',
+      startTime: formatTime(12, 0),
+      endTime: formatTime(12, 30),
+      status: 'COMPLETED',
+      notes: 'Corte clásico ejecutivo a tijera.',
+      barber: { id: 'b3', name: 'Santi Style', chairNumber: 3, specialty: 'Cortes Clásicos & Texturizados', status: 'ACTIVE' },
+      service: { id: 's2', name: 'Corte Clásico Ejecutivo', price: 30, durationMinutes: 30, category: 'CORTES', isActive: true }
+    },
+    {
+      id: 'apt-santi-2',
+      clientName: 'Mauricio Alarcón',
+      clientPhone: '+51 965 667 788',
+      barberId: 'b3',
+      serviceId: 's2',
+      startTime: formatTime(14, 30),
+      endTime: formatTime(15, 0),
+      status: 'CONFIRMED',
+      notes: 'Pompadour clásico y peinado formal.',
+      barber: { id: 'b3', name: 'Santi Style', chairNumber: 3, specialty: 'Cortes Clásicos & Texturizados', status: 'ACTIVE' },
+      service: { id: 's2', name: 'Corte Clásico Ejecutivo', price: 30, durationMinutes: 30, category: 'CORTES', isActive: true }
+    },
+    {
+      id: 'apt-santi-3',
+      clientName: 'Gabriel Quintana',
+      clientPhone: '+51 941 556 789',
+      barberId: 'b3',
+      serviceId: 's3',
+      startTime: formatTime(19, 0),
+      endTime: formatTime(19, 30),
+      status: 'CONFIRMED',
+      notes: 'Ritual barba y toalla caliente.',
+      barber: { id: 'b3', name: 'Santi Style', chairNumber: 3, specialty: 'Cortes Clásicos & Texturizados', status: 'ACTIVE' },
+      service: { id: 's3', name: 'Ritual Barba & Toalla Caliente', price: 25, durationMinutes: 25, category: 'BARBA', isActive: true }
+    }
+  ];
+
+  if (barberId) {
+    return seedAppointments.filter(a => a.barberId === barberId);
+  }
+  return seedAppointments;
+}
+

@@ -1,4 +1,4 @@
-import { PrismaClient, BarberStatus, TicketStatus } from '@prisma/client';
+import { PrismaClient, BarberStatus, TicketStatus, AppointmentStatus } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -149,6 +149,122 @@ async function main() {
       positionInQueue: 3,
       estimatedWaitMinutes: 40
     }
+  });
+
+  console.log('--- Creando Citas Agendadas Independientes por Barbero ---');
+  const today = new Date();
+  const createDate = (hours: number, minutes: number) => {
+    const d = new Date(today);
+    d.setHours(hours, minutes, 0, 0);
+    return d;
+  };
+
+  // 1. Citas de Frank Master (Sillón #1)
+  await prisma.appointment.createMany({
+    data: [
+      {
+        clientName: 'Alonso Vera',
+        clientPhone: '+51 987 111 222',
+        barberId: barberFrank.id,
+        serviceId: serviceFade.id,
+        startTime: createDate(11, 0),
+        endTime: createDate(11, 45),
+        status: AppointmentStatus.COMPLETED,
+        notes: 'Cliente fijo. Fade alto y navaja.'
+      },
+      {
+        clientName: 'Rodrigo Santillán',
+        clientPhone: '+51 922 431 880',
+        barberId: barberFrank.id,
+        serviceId: serviceBeard.id,
+        startTime: createDate(16, 30),
+        endTime: createDate(17, 0),
+        status: AppointmentStatus.CONFIRMED,
+        notes: 'Socio VIP. Toalla caliente y aceites.'
+      },
+      {
+        clientName: 'Gianfranco Rossi',
+        clientPhone: '+51 998 776 554',
+        barberId: barberFrank.id,
+        serviceId: serviceCombo.id,
+        startTime: createDate(18, 30),
+        endTime: createDate(19, 20),
+        status: AppointmentStatus.CONFIRMED,
+        notes: 'Corte completo y barba perfilada.'
+      }
+    ]
+  });
+
+  // 2. Citas de Mateo Fade (Sillón #2)
+  await prisma.appointment.createMany({
+    data: [
+      {
+        clientName: 'Kevin Salcedo',
+        clientPhone: '+51 992 334 455',
+        barberId: barberMateo.id,
+        serviceId: serviceFade.id,
+        startTime: createDate(13, 30),
+        endTime: createDate(14, 15),
+        status: AppointmentStatus.IN_PROGRESS,
+        notes: 'Buzz Cut con diseños tribales en lateral.'
+      },
+      {
+        clientName: 'Christian Benavides',
+        clientPhone: '+51 983 445 566',
+        barberId: barberMateo.id,
+        serviceId: serviceFade.id,
+        startTime: createDate(15, 45),
+        endTime: createDate(16, 30),
+        status: AppointmentStatus.CONFIRMED,
+        notes: 'Taper Fade texturizado.'
+      },
+      {
+        clientName: 'Bryan Palacios',
+        clientPhone: '+51 974 556 677',
+        barberId: barberMateo.id,
+        serviceId: serviceCombo.id,
+        startTime: createDate(17, 15),
+        endTime: createDate(18, 5),
+        status: AppointmentStatus.CONFIRMED,
+        notes: 'Freestyle urbano + cejas.'
+      }
+    ]
+  });
+
+  // 3. Citas de Santi Style (Sillón #3)
+  await prisma.appointment.createMany({
+    data: [
+      {
+        clientName: 'Renato Silva',
+        clientPhone: '+51 933 222 111',
+        barberId: barberSanti.id,
+        serviceId: serviceClassic.id,
+        startTime: createDate(12, 0),
+        endTime: createDate(12, 30),
+        status: AppointmentStatus.COMPLETED,
+        notes: 'Corte clásico ejecutivo a tijera.'
+      },
+      {
+        clientName: 'Mauricio Alarcón',
+        clientPhone: '+51 965 667 788',
+        barberId: barberSanti.id,
+        serviceId: serviceClassic.id,
+        startTime: createDate(14, 30),
+        endTime: createDate(15, 0),
+        status: AppointmentStatus.CONFIRMED,
+        notes: 'Pompadour clásico y peinado formal.'
+      },
+      {
+        clientName: 'Gabriel Quintana',
+        clientPhone: '+51 941 556 789',
+        barberId: barberSanti.id,
+        serviceId: serviceBeard.id,
+        startTime: createDate(19, 0),
+        endTime: createDate(19, 30),
+        status: AppointmentStatus.CONFIRMED,
+        notes: 'Ritual barba y toalla caliente.'
+      }
+    ]
   });
 
   console.log(' Seed de EL CARTEL BARBERSHOP completado con éxito!');

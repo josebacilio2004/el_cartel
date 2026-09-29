@@ -53,8 +53,8 @@ import {
   Tooltip,
   Legend
 } from 'recharts';
-import { QueueStatus, Barber, Service, Ticket, ClientRecord, SaleTicket } from '../types';
-import { fetchClients, createTicket, updateClientInBackend } from '../services/api';
+import { QueueStatus, Barber, Service, Ticket, ClientRecord, SaleTicket, AppointmentRecord } from '../types';
+import { fetchClients, createTicket, updateClientInBackend, fetchAppointments } from '../services/api';
 
 interface AdminDashboardProps {
   queueStatus: QueueStatus | null;
@@ -429,19 +429,38 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setClients(updatedClients);
       localStorage.setItem('el_cartel_clients_list', JSON.stringify(updatedClients));
 
-      // 1. Sincronizar inmediatamente con el cliente en sillón si es la misma persona
-      if (
-        chairClient && (
-          chairClient.clientName.trim().toLowerCase() === editingClient.name.trim().toLowerCase() ||
-          chairClient.clientName.trim().toLowerCase() === trimmedName.toLowerCase()
-        )
-      ) {
-        setChairClient(prev => prev ? {
-          ...prev,
-          clientName: trimmedName,
-          clientPhone: trimmedPhone
-        } : null);
-      }
+      // 1. Sincronizar inmediatamente con los sillones si es la misma persona
+      setChairsMap(prev => {
+        const next = { ...prev };
+        Object.keys(next).forEach(key => {
+          if (next[key] && (
+            next[key]!.clientName.trim().toLowerCase() === editingClient.name.trim().toLowerCase() ||
+            next[key]!.clientName.trim().toLowerCase() === trimmedName.toLowerCase()
+          )) {
+            next[key] = {
+              ...next[key]!,
+              clientName: trimmedName,
+              clientPhone: trimmedPhone
+            };
+          }
+        });
+        return next;
+      });
+
+      // Sincronizar citas agendadas
+      setAppointmentsList(prev => prev.map(a => {
+        if (
+          a.clientName.trim().toLowerCase() === editingClient.name.trim().toLowerCase() ||
+          a.clientName.trim().toLowerCase() === trimmedName.toLowerCase()
+        ) {
+          return {
+            ...a,
+            clientName: trimmedName,
+            clientPhone: trimmedPhone
+          };
+        }
+        return a;
+      }));
 
       // 2. Sincronizar inmediatamente con todos los turnos en la cola unificada
       setUnifiedQueue(prev => prev.map(item => {
@@ -532,34 +551,64 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     return (found && found.phone && found.phone.trim()) ? found.phone.trim() : fallbackPhone;
   };
 
-  // Cliente actualmente en el sillón del barbero activo
-  const [chairClient, setChairClient] = useState<{
+  // Sillones independientes por cada barbero
+  const [chairsMap, setChairsMap] = useState<Record<string, {
     ticketCode: string;
     clientName: string;
     clientPhone: string;
     serviceName: string;
     servicePrice: number;
     startedAt: number;
-  } | null>(() => {
-    const saved = localStorage.getItem('el_cartel_chair_client');
+  } | null>>(() => {
+    const saved = localStorage.getItem('el_cartel_chairs_map');
     if (saved) {
       try { return JSON.parse(saved); } catch (e) { }
     }
     return {
-      ticketCode: 'C-01',
-      clientName: 'Carlos Mendoza',
-      clientPhone: '+51 987 654 321',
-      serviceName: 'Fade Urbano Cartel',
-      servicePrice: 35,
-      startedAt: Date.now() - 22 * 60 * 1000 // 22 minutos transcurridos
+      'b1': {
+        ticketCode: 'C-01',
+        clientName: 'Carlos Mendoza',
+        clientPhone: '+51 987 654 321',
+        serviceName: 'Fade Urbano Cartel',
+        servicePrice: 35,
+        startedAt: Date.now() - 22 * 60 * 1000
+      },
+      'b2': {
+        ticketCode: 'C-02',
+        clientName: 'Kevin Salcedo',
+        clientPhone: '+51 992 334 455',
+        serviceName: 'Buzz Cut + Diseños Tribales',
+        servicePrice: 35,
+        startedAt: Date.now() - 14 * 60 * 1000
+      },
+      'b3': {
+        ticketCode: 'C-03',
+        clientName: 'Renato Silva',
+        clientPhone: '+51 933 222 111',
+        serviceName: 'Corte Clásico Ejecutivo',
+        servicePrice: 30,
+        startedAt: Date.now() - 8 * 60 * 1000
+      }
     };
   });
 
   useEffect(() => {
-    if (chairClient) {
-      localStorage.setItem('el_cartel_chair_client', JSON.stringify(chairClient));
-    }
-  }, [chairClient]);
+    localStorage.setItem('el_cartel_chairs_map', JSON.stringify(chairsMap));
+  }, [chairsMap]);
+
+  // Cliente en el sillón del barbero actualmente en sesión
+  const chairClient = chairsMap[activeBarberId] ?? null;
+
+  const setChairClient = (action: any) => {
+    setChairsMap(prev => {
+      const current = prev[activeBarberId] ?? null;
+      const updated = typeof action === 'function' ? action(current) : action;
+      return {
+        ...prev,
+        [activeBarberId]: updated
+      };
+    });
+  };
 
   // Cronómetro del sillón activo
   const [timerSeconds, setTimerSeconds] = useState(1320); // 22 min demo
@@ -575,6 +624,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const secs = totalSec % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // Filtro de la cola de espera: 'my' (solo turnos de este barbero o unassigned) vs 'all' (toda la barbería)
+  const [queueFilter, setQueueFilter] = useState<'my' | 'all'>('my');
 
   // Cola unificada en vivo (tickets de llegada + citas programadas)
   const [unifiedQueue, setUnifiedQueue] = useState<Array<{
@@ -592,54 +644,265 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   }>>([
     {
       id: 'q-1',
-      ticketCode: 'C-02',
-      clientName: 'Diego Morales',
-      clientPhone: '+51 991 234 567',
-      serviceName: 'Buzz Cut + Diseños Tribales',
-      servicePrice: 35,
-      barberName: 'Mateo Fade',
-      position: 1,
-      type: 'LLEGADA',
-      estimatedWaitMin: 10
-    },
-    {
-      id: 'q-2',
-      ticketCode: 'C-03',
-      clientName: 'Alejandro Torres',
-      clientPhone: '+51 954 882 119',
-      serviceName: 'Corte Clásico Ejecutivo',
-      servicePrice: 30,
-      barberName: 'Cualquier Barbero',
-      position: 2,
-      type: 'LLEGADA',
-      estimatedWaitMin: 25
-    },
-    {
-      id: 'q-3',
-      ticketCode: 'CITA-4',
+      ticketCode: 'C-04',
       clientName: 'Rodrigo Santillán',
       clientPhone: '+51 922 431 880',
       serviceName: 'Ritual Barba & Toalla Caliente',
       servicePrice: 25,
       barberName: 'Frank Master',
       scheduledTime: '04:30 PM',
-      position: 3,
+      position: 1,
       type: 'CITA',
-      estimatedWaitMin: 40
+      estimatedWaitMin: 15
+    },
+    {
+      id: 'q-2',
+      ticketCode: 'C-05',
+      clientName: 'Christian Benavides',
+      clientPhone: '+51 983 445 566',
+      serviceName: 'Fade Urbano Cartel',
+      servicePrice: 35,
+      barberName: 'Mateo Fade',
+      scheduledTime: '03:45 PM',
+      position: 2,
+      type: 'CITA',
+      estimatedWaitMin: 25
+    },
+    {
+      id: 'q-3',
+      ticketCode: 'C-06',
+      clientName: 'Alejandro Torres',
+      clientPhone: '+51 954 882 119',
+      serviceName: 'Corte Clásico Ejecutivo',
+      servicePrice: 30,
+      barberName: 'Cualquier Barbero',
+      position: 3,
+      type: 'LLEGADA',
+      estimatedWaitMin: 35
     },
     {
       id: 'q-4',
-      ticketCode: 'C-05',
-      clientName: 'Sebastián Vidal',
-      clientPhone: '+51 960 712 344',
-      serviceName: 'Fade Urbano Cartel',
-      servicePrice: 35,
+      ticketCode: 'C-07',
+      clientName: 'Mauricio Alarcón',
+      clientPhone: '+51 965 667 788',
+      serviceName: 'Corte Clásico Ejecutivo',
+      servicePrice: 30,
       barberName: 'Santi Style',
+      scheduledTime: '02:30 PM',
       position: 4,
-      type: 'LLEGADA',
-      estimatedWaitMin: 55
+      type: 'CITA',
+      estimatedWaitMin: 45
+    },
+    {
+      id: 'q-5',
+      ticketCode: 'C-08',
+      clientName: 'Gianfranco Rossi',
+      clientPhone: '+51 998 776 554',
+      serviceName: 'Combo El Cartel (Corte + Barba)',
+      servicePrice: 50,
+      barberName: 'Frank Master',
+      scheduledTime: '06:30 PM',
+      position: 5,
+      type: 'CITA',
+      estimatedWaitMin: 60
+    },
+    {
+      id: 'q-6',
+      ticketCode: 'C-09',
+      clientName: 'Bryan Palacios',
+      clientPhone: '+51 974 556 677',
+      serviceName: 'Combo El Cartel',
+      servicePrice: 50,
+      barberName: 'Mateo Fade',
+      scheduledTime: '05:15 PM',
+      position: 6,
+      type: 'CITA',
+      estimatedWaitMin: 75
     }
   ]);
+
+  // Cola de espera filtrada según el barbero activo
+  const filteredQueue = queueFilter === 'my'
+    ? unifiedQueue.filter(item => {
+        const barberMatch = item.barberName.toLowerCase() === activeBarber.name.toLowerCase();
+        const anyBarber = item.barberName === 'Cualquier Barbero' || item.barberName === 'Cualquiera' || !item.barberName;
+        return barberMatch || anyBarber;
+      })
+    : unifiedQueue;
+
+  // ----------------------------------------------------
+  // GESTIÓN DE CITAS & AGENDA (SINCRONIZADO CON SEEDER)
+  // ----------------------------------------------------
+  const [appointmentsList, setAppointmentsList] = useState<AppointmentRecord[]>(() => {
+    const saved = localStorage.getItem('el_cartel_appointments_list');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { }
+    }
+    return [];
+  });
+
+  const [appointmentFilter, setAppointmentFilter] = useState<'my' | 'all'>('my');
+
+  // Cargar citas desde backend con fallback idéntico al Seeder
+  const loadAppointmentsData = async () => {
+    try {
+      const data = await fetchAppointments();
+      if (data && data.length > 0) {
+        setAppointmentsList(data);
+        localStorage.setItem('el_cartel_appointments_list', JSON.stringify(data));
+      }
+    } catch (err) {
+      console.warn('Error al cargar citas:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadAppointmentsData();
+  }, []);
+
+  useEffect(() => {
+    if (appointmentsList.length > 0) {
+      localStorage.setItem('el_cartel_appointments_list', JSON.stringify(appointmentsList));
+    }
+  }, [appointmentsList]);
+
+  // Citas filtradas para el barbero activo o agenda general
+  const filteredAppointments = appointmentFilter === 'my'
+    ? appointmentsList.filter(apt => {
+        const aptBarberName = apt.barber?.name?.toLowerCase() || '';
+        const currentBarberName = activeBarber.name.toLowerCase();
+        const idMatch = apt.barberId === activeBarber.id;
+        const nameMatch = aptBarberName.includes(currentBarberName) || currentBarberName.includes(aptBarberName);
+        return idMatch || nameMatch;
+      })
+    : appointmentsList;
+
+  // Helper para formatear hora de cita
+  const formatAppointmentTime = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+      }
+    } catch (e) {}
+    return dateStr;
+  };
+
+  // Acciones sobre citas
+  const handleSeatAppointment = (apt: AppointmentRecord) => {
+    const currentPhone = getClientCurrentPhone(apt.clientName, apt.clientPhone);
+    if (chairClient && !confirm(`Actualmente estás atendiendo a ${chairClient.clientName}. ¿Deseas reemplazar el sillón con la cita de ${apt.clientName}?`)) {
+      return;
+    }
+    setChairClient({
+      ticketCode: `CITA-${apt.id.slice(-4).toUpperCase()}`,
+      clientName: apt.clientName,
+      clientPhone: currentPhone,
+      serviceName: apt.service?.name || 'Servicio Barbería',
+      servicePrice: Number(apt.service?.price) || 35,
+      startedAt: Date.now()
+    });
+    setTimerSeconds(0);
+    setAppointmentsList(prev => prev.map(a => a.id === apt.id ? { ...a, status: 'IN_PROGRESS' } : a));
+    showNotification(`¡Cita de ${apt.clientName} llamada al Sillón #${activeBarber.chairNumber}!`);
+  };
+
+  const handleFinishAppointmentCut = (apt: AppointmentRecord) => {
+    const price = Number(apt.service?.price) || 35;
+    const currentPhone = getClientCurrentPhone(apt.clientName, apt.clientPhone);
+    setActiveReceipt({
+      id: `sale-apt-${Date.now()}`,
+      ticketCode: `CITA-${apt.id.slice(-4).toUpperCase()}`,
+      clientName: apt.clientName,
+      clientPhone: currentPhone,
+      serviceName: apt.service?.name || 'Corte Cartel',
+      barberName: apt.barber?.name || activeBarber.name,
+      chairNumber: apt.barber?.chairNumber || activeBarber.chairNumber,
+      amount: price,
+      durationMinutes: apt.service?.durationMinutes || 35,
+      paymentMethod: 'EFECTIVO',
+      createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    });
+    setAppointmentsList(prev => prev.map(a => a.id === apt.id ? { ...a, status: 'COMPLETED' } : a));
+    setIsReceiptModalOpen(true);
+  };
+
+  const handleUpdateAppointmentStatus = (aptId: string, newStatus: 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED') => {
+    setAppointmentsList(prev => prev.map(a => a.id === aptId ? { ...a, status: newStatus } : a));
+    showNotification(`Estado de cita actualizado a: ${newStatus}`);
+  };
+
+  // Modal para agendar nueva cita
+  const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
+  const [appointmentForm, setAppointmentForm] = useState({
+    clientName: '',
+    clientPhone: '+51 ',
+    serviceId: servicesList[0]?.id || '',
+    barberId: activeBarberId,
+    timeSlot: '15:30',
+    notes: '',
+    addToQueue: false
+  });
+
+  const handleSaveNewAppointment = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!appointmentForm.clientName.trim() || !appointmentForm.clientPhone.trim()) return;
+
+    const assignedBarber = barbersList.find(b => b.id === appointmentForm.barberId) || activeBarber;
+    const assignedService = servicesList.find(s => s.id === appointmentForm.serviceId) || servicesList[0];
+
+    const todayDate = new Date();
+    const [hours, mins] = appointmentForm.timeSlot.split(':').map(Number);
+    todayDate.setHours(hours || 15, mins || 0, 0, 0);
+
+    const newApt: AppointmentRecord = {
+      id: `apt-${Date.now()}`,
+      clientName: appointmentForm.clientName.trim(),
+      clientPhone: appointmentForm.clientPhone.trim(),
+      barberId: assignedBarber.id,
+      serviceId: assignedService.id,
+      startTime: todayDate.toISOString(),
+      endTime: new Date(todayDate.getTime() + (assignedService.durationMinutes || 30) * 60000).toISOString(),
+      status: 'CONFIRMED',
+      notes: appointmentForm.notes.trim() || 'Cita agendada desde el panel',
+      barber: assignedBarber,
+      service: assignedService
+    };
+
+    setAppointmentsList(prev => [newApt, ...prev]);
+
+    if (appointmentForm.addToQueue) {
+      setUnifiedQueue(prev => [
+        ...prev,
+        {
+          id: `q-${Date.now()}`,
+          ticketCode: `CITA-${newApt.id.slice(-4).toUpperCase()}`,
+          clientName: newApt.clientName,
+          clientPhone: newApt.clientPhone,
+          serviceName: assignedService.name,
+          servicePrice: Number(assignedService.price) || 35,
+          barberName: assignedBarber.name,
+          scheduledTime: appointmentForm.timeSlot,
+          position: prev.length + 1,
+          type: 'CITA',
+          estimatedWaitMin: (prev.length + 1) * 20
+        }
+      ]);
+    }
+
+    showNotification(`¡Cita agendada para ${newApt.clientName} con ${assignedBarber.name}!`);
+    setIsAppointmentModalOpen(false);
+    setAppointmentForm({
+      clientName: '',
+      clientPhone: '+51 ',
+      serviceId: servicesList[0]?.id || '',
+      barberId: activeBarberId,
+      timeSlot: '15:30',
+      notes: '',
+      addToQueue: false
+    });
+  };
+
 
   // ----------------------------------------------------
   // TICKET DE VENTA / COBRO Y MÉTRICAS FINANCIERAS
@@ -707,18 +970,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       todayEarnings: (b.todayEarnings || 0) + activeReceipt.amount
     } : b));
 
-    // 3. Pasar al siguiente de la cola unificada
-    if (unifiedQueue.length > 0) {
-      const nextClient = unifiedQueue[0];
+    // 3. Pasar al siguiente cliente destinado a este barbero o turno libre
+    const nextClient = unifiedQueue.find(item => {
+      const barberMatch = item.barberName.toLowerCase() === activeBarber.name.toLowerCase();
+      const anyBarber = item.barberName === 'Cualquier Barbero' || item.barberName === 'Cualquiera' || !item.barberName;
+      return barberMatch || anyBarber;
+    }) || (unifiedQueue.length > 0 ? unifiedQueue[0] : null);
+
+    if (nextClient) {
       setChairClient({
         ticketCode: nextClient.ticketCode,
         clientName: nextClient.clientName,
-        clientPhone: nextClient.clientPhone,
+        clientPhone: getClientCurrentPhone(nextClient.clientName, nextClient.clientPhone),
         serviceName: nextClient.serviceName,
         servicePrice: nextClient.servicePrice,
         startedAt: Date.now()
       });
-      setUnifiedQueue(prev => prev.slice(1).map((item, idx) => ({ ...item, position: idx + 1 })));
+      setUnifiedQueue(prev => prev.filter(q => q.id !== nextClient.id).map((item, idx) => ({ ...item, position: idx + 1 })));
       setTimerSeconds(0);
       showNotification(`¡Turno ${activeReceipt.ticketCode} cobrado (S/. ${activeReceipt.amount.toFixed(2)})! Llamado ${nextClient.clientName}`);
     } else {
@@ -853,11 +1121,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Módulos de Navegación Lateral
   const navItems = [
-    { id: 'terminal' as TabType, label: 'Sillones & Turnos en Vivo', sublabel: 'Llamador, tiempo y cobro', icon: Scissors, badge: unifiedQueue.length, badgeColor: 'bg-frank-orange text-white' },
+    { id: 'terminal' as TabType, label: 'Sillones & Turnos en Vivo', sublabel: 'Llamador, tiempo y cobro', icon: Scissors, badge: filteredQueue.length, badgeColor: 'bg-frank-orange text-white' },
     { id: 'clients' as TabType, label: 'Gestión de Clientes', sublabel: 'Directorio, VIPs y Registro', icon: Users, badge: clients.length },
     { id: 'services' as TabType, label: 'Servicios & Tarifas', sublabel: 'Catálogo CRUD y precios', icon: Tag, badge: servicesList.length },
     { id: 'staff' as TabType, label: 'Staff de Barberos', sublabel: 'Sillones, PINs y CRUD', icon: UserCheck, badge: barbersList.length },
-    { id: 'appointments' as TabType, label: 'Citas & Agenda', sublabel: 'Reservas del día', icon: Calendar, badge: 4 },
+    { id: 'appointments' as TabType, label: 'Citas & Agenda', sublabel: `Reservas de ${activeBarber.name.split(' ')[0]}`, icon: Calendar, badge: filteredAppointments.length, badgeColor: 'bg-frank-gold text-black' },
     { id: 'metrics' as TabType, label: 'Métricas & Fin de Semana', sublabel: 'Gráficos Recharts e ingresos', icon: BarChart3 }
   ];
 
@@ -1223,19 +1491,40 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     Clientes en orden de llegada y citas programadas del día listos para atención
                   </p>
                 </div>
-                <span className="text-xs font-bold text-frank-orange bg-frank-orange/10 border border-frank-orange/30 px-3 py-1.5 rounded-xl">
-                  {unifiedQueue.length} personas en espera
-                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setQueueFilter('my')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      queueFilter === 'my'
+                        ? 'bg-frank-orange text-white shadow-md shadow-frank-orange/20'
+                        : 'bg-[#181B25] text-[#8C93A4] hover:text-white border border-[#262B3A]'
+                    }`}
+                  >
+                    Mis Clientes ({activeBarber.name.split(' ')[0]}) ({filteredQueue.length})
+                  </button>
+                  <button
+                    onClick={() => setQueueFilter('all')}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      queueFilter === 'all'
+                        ? 'bg-secondary text-white shadow-md shadow-secondary/20'
+                        : 'bg-[#181B25] text-[#8C93A4] hover:text-white border border-[#262B3A]'
+                    }`}
+                  >
+                    Cola General ({unifiedQueue.length})
+                  </button>
+                </div>
               </div>
 
-              {unifiedQueue.length === 0 ? (
+              {filteredQueue.length === 0 ? (
                 <div className="text-center py-10 text-[#6B7280]">
                   <CheckCircle2 className="w-8 h-8 text-secondary mx-auto mb-2" />
-                  ¡No hay clientes en espera en este momento! Todos los sillones están al día.
+                  {queueFilter === 'my'
+                    ? `¡No tienes turnos pendientes asignados a tu sillón (#${activeBarber.chairNumber})! Cambia a "Cola General" para atender turnos libres.`
+                    : '¡No hay clientes en espera en este momento! Todos los sillones están al día.'}
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {unifiedQueue.map((item) => (
+                  {filteredQueue.map((item) => (
                     <div
                       key={item.id}
                       className="flex flex-wrap items-center justify-between gap-4 p-4 bg-[#181B25] hover:bg-[#1D212E] border border-[#262B3A] rounded-2xl transition-all"
@@ -1582,51 +1871,272 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         )}
 
         {/* ---------------------------------------------------- */}
-        {/* 5. MÓDULO: CITAS & AGENDA                           */}
+        {/* 5. MÓDULO: CITAS & AGENDA (INDEPENDIENTE POR BARBERO) */}
         {/* ---------------------------------------------------- */}
         {activeTab === 'appointments' && (
           <div className="space-y-6 animate-fadeIn">
-            <div className="bg-[#12141C] border border-[#222634] rounded-2xl p-6">
-              <h3 className="font-display text-xl font-bold text-white mb-4">Agenda del Día (Citas Fijas)</h3>
-              <div className="space-y-3">
-                {[
-                  { time: '11:00 AM', name: 'Alonso Vera', phone: '+51 987 111 222', service: 'Fade Urbano + Barba', barber: 'Frank Master', status: 'COMPLETADA' },
-                  { time: '01:30 PM', name: 'Diego Morales', phone: '+51 991 234 567', service: 'Buzz Cut + Diseños', barber: 'Mateo Fade', status: 'EN ATENCIÓN' },
-                  { time: '04:30 PM', name: 'Carlos Mendoza', phone: '+51 987 654 321', service: 'Fade Urbano Cartel', barber: 'Frank Master', status: 'CONFIRMADA' },
-                  { time: '06:00 PM', name: 'Renato Silva', phone: '+51 933 222 111', service: 'Corte Clásico Ejecutivo', barber: 'Santi Style', status: 'PENDIENTE' }
-                ].map((apt, idx) => (
-                  <div key={idx} className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-[#181B25] border border-[#262B3A] rounded-xl">
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono text-xs font-bold text-frank-orange bg-frank-orange/10 px-2.5 py-1 rounded border border-frank-orange/20">
-                        {apt.time}
-                      </span>
-                      <div>
-                        <div className="font-bold text-white text-sm">{apt.name}</div>
-                        <div className="text-xs text-[#7F8698]">{apt.service} · {apt.barber}</div>
+            {/* Cabecera y Selector de Agenda */}
+            <div className="bg-[#12141C] border border-[#222634] p-6 rounded-3xl">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 text-frank-gold font-bold text-xs uppercase tracking-wider mb-1">
+                    <Calendar className="w-4 h-4 text-frank-gold" />
+                    <span>AGENDA EXCLUSIVA & CITAS INDEPENDIENTES</span>
+                  </div>
+                  <h3 className="font-display text-2xl font-bold text-white tracking-wide">
+                    {appointmentFilter === 'my'
+                      ? `Citas Agendadas: ${activeBarber.name} (Sillón #${activeBarber.chairNumber})`
+                      : 'Agenda General de Toda la Barbería'}
+                  </h3>
+                  <p className="text-xs text-[#7F8698] mt-1">
+                    {appointmentFilter === 'my'
+                      ? `Visualizando exclusivamente los clientes que reservaron turno directo con ${activeBarber.name}.`
+                      : 'Visualizando todas las citas registradas en la base de datos de EL CARTEL.'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Selector Mis Citas vs General */}
+                  <div className="bg-[#181B25] border border-[#262B3A] p-1 rounded-2xl flex items-center gap-1">
+                    <button
+                      onClick={() => setAppointmentFilter('my')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        appointmentFilter === 'my'
+                          ? 'bg-frank-orange text-white shadow-md shadow-frank-orange/20'
+                          : 'text-[#8C93A4] hover:text-white'
+                      }`}
+                    >
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Mis Citas ({activeBarber.name.split(' ')[0]}) ({appointmentsList.filter(a => a.barberId === activeBarber.id || (a.barber?.name && a.barber.name.toLowerCase().includes(activeBarber.name.toLowerCase()))).length})</span>
+                    </button>
+                    <button
+                      onClick={() => setAppointmentFilter('all')}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        appointmentFilter === 'all'
+                          ? 'bg-secondary text-white shadow-md shadow-secondary/20'
+                          : 'text-[#8C93A4] hover:text-white'
+                      }`}
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Agenda General ({appointmentsList.length})</span>
+                    </button>
+                  </div>
+
+                  {/* Sincronizar Seeder BD */}
+                  <button
+                    onClick={async () => {
+                      await loadAppointmentsData();
+                      showNotification('¡Citas sincronizadas con el seeder de base de datos!');
+                    }}
+                    className="p-2.5 bg-[#181B25] hover:bg-[#202431] border border-[#262B3A] text-[#8C93A4] hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                    title="Recargar desde Seeder de BD"
+                  >
+                    <RefreshCw className="w-4 h-4 text-frank-gold" />
+                    <span className="hidden sm:inline">Sincronizar BD</span>
+                  </button>
+
+                  {/* Botón Agendar Cita */}
+                  <button
+                    onClick={() => {
+                      setAppointmentForm({
+                        clientName: '',
+                        clientPhone: '+51 ',
+                        serviceId: servicesList[0]?.id || '',
+                        barberId: activeBarberId,
+                        timeSlot: '15:30',
+                        notes: '',
+                        addToQueue: false
+                      });
+                      setIsAppointmentModalOpen(true);
+                    }}
+                    className="px-4 py-2.5 bg-gradient-to-r from-frank-orange to-[#A84F22] hover:brightness-110 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-frank-orange/20 flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>+ Agendar Cita</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Mini KPIs de la Agenda */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-5 border-t border-[#222634]">
+                <div className="bg-[#181B25] border border-[#262B3A] p-3 rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-[#7F8698]">Citas Programadas</div>
+                  <div className="font-display text-2xl font-bold text-white mt-0.5">{filteredAppointments.length}</div>
+                </div>
+                <div className="bg-[#181B25] border border-[#262B3A] p-3 rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-blue-400">Confirmadas</div>
+                  <div className="font-display text-2xl font-bold text-blue-400 mt-0.5">
+                    {filteredAppointments.filter(a => a.status === 'CONFIRMED').length}
+                  </div>
+                </div>
+                <div className="bg-[#181B25] border border-[#262B3A] p-3 rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-frank-orange">En Atención</div>
+                  <div className="font-display text-2xl font-bold text-frank-orange mt-0.5">
+                    {filteredAppointments.filter(a => a.status === 'IN_PROGRESS').length}
+                  </div>
+                </div>
+                <div className="bg-[#181B25] border border-[#262B3A] p-3 rounded-xl">
+                  <div className="text-[10px] uppercase font-bold text-secondary">Completadas Hoy</div>
+                  <div className="font-display text-2xl font-bold text-secondary mt-0.5">
+                    {filteredAppointments.filter(a => a.status === 'COMPLETED').length}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Listado de Citas */}
+            <div className="space-y-3">
+              {filteredAppointments.length === 0 ? (
+                <div className="bg-[#12141C] border border-[#222634] rounded-3xl p-12 text-center">
+                  <Calendar className="w-12 h-12 text-[#4E566D] mx-auto mb-3" />
+                  <h4 className="font-display text-xl font-bold text-white mb-1">
+                    No hay citas agendadas para {activeBarber.name}
+                  </h4>
+                  <p className="text-xs text-[#7F8698] max-w-md mx-auto mb-5">
+                    Este barbero gestiona sus tiempos de manera autónoma. Puedes registrar una cita para este sillón o revisar la agenda de otros barberos.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setAppointmentForm({
+                        clientName: '',
+                        clientPhone: '+51 ',
+                        serviceId: servicesList[0]?.id || '',
+                        barberId: activeBarberId,
+                        timeSlot: '16:00',
+                        notes: '',
+                        addToQueue: false
+                      });
+                      setIsAppointmentModalOpen(true);
+                    }}
+                    className="px-5 py-2.5 bg-frank-orange hover:brightness-110 text-white rounded-xl text-xs font-bold transition-all inline-flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Agendar Primera Cita</span>
+                  </button>
+                </div>
+              ) : (
+                filteredAppointments.map((apt) => {
+                  const currentPhone = getClientCurrentPhone(apt.clientName, apt.clientPhone);
+                  const cleanPhone = currentPhone.replace(/[^0-9]/g, '');
+                  const displayTime = formatAppointmentTime(apt.startTime);
+                  const barberDisplay = apt.barber?.name || activeBarber.name;
+                  const chairDisplay = apt.barber?.chairNumber || activeBarber.chairNumber;
+                  const serviceDisplay = apt.service?.name || 'Servicio Barbería';
+                  const priceDisplay = Number(apt.service?.price) || 35;
+
+                  return (
+                    <div
+                      key={apt.id}
+                      className="flex flex-wrap items-center justify-between gap-4 p-5 bg-[#12141C] hover:bg-[#161924] border border-[#222634] hover:border-frank-orange/40 rounded-2xl transition-all shadow-md"
+                    >
+                      {/* Información Izquierda */}
+                      <div className="flex items-start gap-4">
+                        <div className="flex flex-col items-center justify-center p-3 bg-[#1A1D27] border border-[#282E3E] rounded-xl text-center min-w-[85px]">
+                          <Clock className="w-4 h-4 text-frank-gold mb-1" />
+                          <span className="font-mono text-xs font-bold text-white tracking-tight">
+                            {displayTime}
+                          </span>
+                          <span className="text-[10px] text-[#7F8698] font-medium">HOY</span>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <h4 className="font-bold text-white text-base leading-none">
+                              {apt.clientName}
+                            </h4>
+                            {apt.isRegularClient && (
+                              <span className="bg-frank-gold/15 text-frank-gold border border-frank-gold/30 px-2 py-0.5 rounded text-[10px] font-bold">
+                                CLIENTE FIJO
+                              </span>
+                            )}
+                            <span className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded border ${
+                              apt.status === 'COMPLETED' ? 'bg-secondary/10 text-secondary border-secondary/30' :
+                              apt.status === 'IN_PROGRESS' ? 'bg-frank-orange/15 text-frank-orange border-frank-orange/40' :
+                              apt.status === 'CONFIRMED' ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' :
+                              'bg-red-500/10 text-red-400 border-red-500/30'
+                            }`}>
+                              {apt.status === 'COMPLETED' ? 'COMPLETADA' :
+                               apt.status === 'IN_PROGRESS' ? 'EN ATENCIÓN' :
+                               apt.status === 'CONFIRMED' ? 'CONFIRMADA' : 'CANCELADA'}
+                            </span>
+                          </div>
+
+                          <div className="text-xs text-[#8C93A4] mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <span className="text-white font-medium">{serviceDisplay}</span>
+                            <span>·</span>
+                            <span className="text-secondary font-bold">S/. {priceDisplay.toFixed(2)}</span>
+                            <span>·</span>
+                            <span className="font-mono text-[#A0A7B8]">📞 {currentPhone}</span>
+                            <span>·</span>
+                            <span className="text-frank-gold font-semibold">Barbero: {barberDisplay} (Sillón #{chairDisplay})</span>
+                          </div>
+
+                          {apt.notes && (
+                            <div className="mt-2 text-xs text-[#7F8698] bg-[#181B25] px-3 py-1.5 rounded-lg border border-[#252A38] inline-block italic">
+                              "{apt.notes}"
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Botones de Acción */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* WhatsApp Recordatorio */}
+                        <a
+                          href={`https://wa.me/${cleanPhone}?text=${encodeURIComponent(
+                            `Hola ${apt.clientName}, te saluda ${barberDisplay} de EL CARTEL BARBERSHOP. Te recordamos tu cita hoy a las ${displayTime} para ${serviceDisplay}. ¡Te esperamos en el Sillón #${chairDisplay}!`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-2 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5"
+                          title="Enviar recordatorio con horario y sillón por WhatsApp"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          <span>Avisar WhatsApp</span>
+                        </a>
+
+                        {/* Llamar al Sillón (si no está completada) */}
+                        {apt.status !== 'COMPLETED' && (
+                          <button
+                            onClick={() => handleSeatAppointment(apt)}
+                            className="px-3.5 py-2 bg-frank-orange hover:brightness-110 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-frank-orange/20"
+                            title="Sentar al cliente en tu sillón ahora"
+                          >
+                            <Play className="w-3.5 h-3.5" />
+                            <span>Llamar al Sillón</span>
+                          </button>
+                        )}
+
+                        {/* Cobrar y Generar Ticket (si está en progreso o confirmada) */}
+                        {apt.status === 'IN_PROGRESS' && (
+                          <button
+                            onClick={() => handleFinishAppointmentCut(apt)}
+                            className="px-3.5 py-2 bg-secondary hover:brightness-110 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-md shadow-secondary/20"
+                            title="Cobrar servicio y generar ticket fiscal"
+                          >
+                            <Receipt className="w-3.5 h-3.5" />
+                            <span>Cobrar Ticket</span>
+                          </button>
+                        )}
+
+                        {/* Cambiar Estado */}
+                        <div className="relative inline-block">
+                          <select
+                            value={apt.status}
+                            onChange={(e) => handleUpdateAppointmentStatus(apt.id, e.target.value as any)}
+                            className="bg-[#1C202D] border border-[#2B3142] text-[#8C93A4] hover:text-white text-xs rounded-xl px-2.5 py-2 font-bold cursor-pointer focus:outline-none focus:border-frank-orange"
+                          >
+                            <option value="CONFIRMED">Confirmada</option>
+                            <option value="IN_PROGRESS">En Atención</option>
+                            <option value="COMPLETED">Completada</option>
+                            <option value="CANCELLED">Cancelada</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={`https://wa.me/${apt.phone.replace(/[^0-9]/g, '')}?text=Hola%20${encodeURIComponent(apt.name)},%20te%20recordamos%20tu%20cita%20hoy%20a%20las%20${apt.time}%20en%20EL%20CARTEL.`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5" />
-                        <span>Confirmar WhatsApp</span>
-                      </a>
-                      <span className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded border ${
-                        apt.status === 'COMPLETADA' ? 'bg-secondary/10 text-secondary border-secondary/30' :
-                        apt.status === 'EN ATENCIÓN' ? 'bg-frank-orange/10 text-frank-orange border-frank-orange/30' :
-                        apt.status === 'CONFIRMADA' ? 'bg-blue-500/10 text-blue-400 border-blue-500/30' :
-                        'bg-yellow-500/10 text-yellow-400 border-yellow-500/30'
-                      }`}>
-                        {apt.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  );
+                })
+              )}
             </div>
           </div>
         )}
@@ -2283,6 +2793,148 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 Poner en Fila Hoy
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---------------------------------------------------- */}
+      {/* MODAL: AGENDAR NUEVA CITA                           */}
+      {/* ---------------------------------------------------- */}
+      {isAppointmentModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fadeIn">
+          <div className="bg-[#151821] border border-[#2A3040] w-full max-w-md rounded-3xl p-6 shadow-2xl relative">
+            <button
+              onClick={() => setIsAppointmentModalOpen(false)}
+              className="absolute top-5 right-5 text-[#7F8698] hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-2 text-frank-gold font-bold text-xs uppercase tracking-wider mb-1">
+              <Calendar className="w-4 h-4 text-frank-gold" />
+              <span>NUEVA RESERVA</span>
+            </div>
+            <h3 className="font-display text-2xl font-bold text-white mb-4">
+              Agendar Cita en Barbería
+            </h3>
+
+            <form onSubmit={handleSaveNewAppointment} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Nombre del Cliente *</label>
+                <input
+                  type="text"
+                  required
+                  value={appointmentForm.clientName}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, clientName: e.target.value })}
+                  placeholder="Ej: Rodrigo Santillán"
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-frank-orange"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Teléfono (WhatsApp) *</label>
+                <input
+                  type="text"
+                  required
+                  value={appointmentForm.clientPhone}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, clientPhone: e.target.value })}
+                  placeholder="+51 987 654 321"
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white font-mono focus:outline-none focus:border-frank-orange"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Barbero Asignado</label>
+                  <select
+                    value={appointmentForm.barberId}
+                    onChange={(e) => setAppointmentForm({ ...appointmentForm, barberId: e.target.value })}
+                    className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-frank-orange cursor-pointer"
+                  >
+                    {barbersList.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} (Sillón #{b.chairNumber})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Horario de Cita</label>
+                  <select
+                    value={appointmentForm.timeSlot}
+                    onChange={(e) => setAppointmentForm({ ...appointmentForm, timeSlot: e.target.value })}
+                    className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-frank-orange cursor-pointer"
+                  >
+                    <option value="10:00">10:00 AM</option>
+                    <option value="11:00">11:00 AM</option>
+                    <option value="12:00">12:00 PM</option>
+                    <option value="13:30">01:30 PM</option>
+                    <option value="14:30">02:30 PM</option>
+                    <option value="15:45">03:45 PM</option>
+                    <option value="16:30">04:30 PM</option>
+                    <option value="17:15">05:15 PM</option>
+                    <option value="18:30">06:30 PM</option>
+                    <option value="19:00">07:00 PM</option>
+                    <option value="20:00">08:00 PM</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Servicio Solicitado</label>
+                <select
+                  value={appointmentForm.serviceId}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, serviceId: e.target.value })}
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-frank-orange cursor-pointer"
+                >
+                  {servicesList.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} (S/. {Number(s.price).toFixed(2)})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[#8C93A4] mb-1">Notas de Estilo / Preferencias</label>
+                <input
+                  type="text"
+                  value={appointmentForm.notes}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, notes: e.target.value })}
+                  placeholder="Ej: Fade medio a navaja, cliente puntual"
+                  className="w-full bg-[#1C202C] border border-[#2A3040] rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-frank-orange"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="aptAddToQueueCheck"
+                  checked={appointmentForm.addToQueue}
+                  onChange={(e) => setAppointmentForm({ ...appointmentForm, addToQueue: e.target.checked })}
+                  className="rounded text-frank-orange"
+                />
+                <label htmlFor="aptAddToQueueCheck" className="text-xs text-white font-semibold">
+                  Añadir también a la cola en vivo del día
+                </label>
+              </div>
+
+              <div className="pt-3 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAppointmentModalOpen(false)}
+                  className="px-4 py-2 bg-[#1C202C] text-xs text-[#8C93A4] hover:text-white rounded-xl"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-gradient-to-r from-frank-orange to-[#A84F22] hover:brightness-110 text-white text-xs font-bold rounded-xl shadow-lg shadow-frank-orange/20"
+                >
+                  Confirmar Reserva
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
