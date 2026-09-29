@@ -305,6 +305,45 @@ export class QueueService {
       });
     }
   }
+
+  /**
+   * Obtiene el directorio consolidado de clientes e historial de visitas
+   */
+  public async getAllClients() {
+    const tickets = await prisma.ticket.findMany({
+      include: { service: true, barber: true },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    const clientMap = new Map<string, any>();
+
+    for (const t of tickets) {
+      const key = t.clientPhone?.trim() || t.clientName.trim().toLowerCase();
+      if (!clientMap.has(key)) {
+        clientMap.set(key, {
+          id: t.id,
+          name: t.clientName,
+          phone: t.clientPhone || 'No registrado',
+          totalVisits: 1,
+          lastService: t.service?.name || 'Corte Clásico',
+          lastBarber: t.barber ? t.barber.name : 'Cualquiera',
+          lastDate: t.createdAt,
+          currentStatus: t.status,
+          currentTicketCode: t.ticketCode,
+          isVIP: false,
+          notes: 'Preferencia: Acabado limpio y navaja'
+        });
+      } else {
+        const c = clientMap.get(key);
+        c.totalVisits += 1;
+        if (c.totalVisits >= 2) {
+          c.isVIP = true;
+        }
+      }
+    }
+
+    return Array.from(clientMap.values());
+  }
 }
 
 export const queueService = new QueueService();

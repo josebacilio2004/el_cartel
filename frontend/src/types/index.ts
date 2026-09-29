@@ -44,6 +44,21 @@ export interface ShopSetting {
   autoPauseQueue: boolean;
 }
 
+export interface ClientRecord {
+  id: string;
+  name: string;
+  phone: string;
+  totalVisits: number;
+  lastService: string;
+  lastBarber: string;
+  lastDate: string;
+  currentStatus?: string;
+  currentTicketCode?: string;
+  isVIP?: boolean;
+  notes?: string;
+  email?: string;
+}
+
 export interface QueueStatus {
   inChair: Ticket[];
   waiting: Ticket[];

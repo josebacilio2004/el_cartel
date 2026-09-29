@@ -78,6 +78,15 @@ export class QueueController {
     const clientId = Math.random().toString(36).substring(2, 9);
     realtimeService.addClient(clientId, res);
   }
+
+  public async getClients(req: Request, res: Response) {
+    try {
+      const clients = await queueService.getAllClients();
+      res.json(clients);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  }
 }
 
 export const queueController = new QueueController();

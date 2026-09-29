@@ -9,6 +9,7 @@ import { TakeTicketModal } from './components/TakeTicketModal';
 import { LiveTicketModal } from './components/LiveTicketModal';
 import { BarberLoginModal } from './components/BarberLoginModal';
 import { BarberTerminalView } from './components/BarberTerminalView';
+import { AdminDashboard } from './components/AdminDashboard';
 import { fetchQueueStatus, fetchBarbers, fetchServices, subscribeToQueueUpdates } from './services/api';
 import { QueueStatus, Barber, Service, Ticket } from './types';
 import { ArrowLeft, RefreshCw, LogOut, ShieldCheck } from 'lucide-react';
@@ -101,21 +102,21 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#0D0E11] text-[#E1E2E9] flex flex-col justify-between selection:bg-frank-orange selection:text-white">
-      {/* Navbar oficial EL CARTEL */}
-      <Navbar
-        onOpenTakeTicket={() => {
-          setSelectedServiceName('');
-          setIsTakeTicketOpen(true);
-        }}
-        currentMode={currentMode}
-        onToggleMode={handleToggleMode}
-        isStaffLoggedIn={isStaffLoggedIn}
-        onStaffLogout={handleStaffLogout}
-      />
+      {currentMode === 'client' ? (
+        <>
+          {/* Navbar oficial EL CARTEL */}
+          <Navbar
+            onOpenTakeTicket={() => {
+              setSelectedServiceName('');
+              setIsTakeTicketOpen(true);
+            }}
+            currentMode={currentMode}
+            onToggleMode={handleToggleMode}
+            isStaffLoggedIn={isStaffLoggedIn}
+            onStaffLogout={handleStaffLogout}
+          />
 
-      <main className="flex-1 w-full">
-        {currentMode === 'client' ? (
-          <>
+          <main className="flex-1 w-full">
             {/* 1. Hero Section con video fondo_barberia.mp4 y marca EL CARTEL BARBERSHOP */}
             <HeroSection
               userTicket={userTicket}
@@ -145,61 +146,24 @@ export const App: React.FC = () => {
                 setIsTakeTicketOpen(true);
               }}
             />
-          </>
-        ) : (
-          /* Terminal Táctil del Barbero Protegido por Login */
-          <div className="pt-28 pb-16 px-4 sm:px-8 max-w-5xl mx-auto animate-fadeIn">
-            <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-              <button
-                onClick={() => setCurrentMode('client')}
-                className="flex items-center gap-2 text-xs font-bold text-[#8A8F9E] hover:text-white transition-colors bg-[#13151B] px-4 py-2 border border-[#232733]"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Volver a la Web Principal</span>
-              </button>
+          </main>
 
-              <div className="flex items-center gap-3">
-                <span className="flex items-center gap-1.5 text-xs font-bold text-secondary bg-secondary/10 px-3 py-1.5 border border-secondary/30">
-                  <ShieldCheck className="w-4 h-4 text-secondary" />
-                  Sesión Activa · Staff El Cartel
-                </span>
-                <button
-                  onClick={loadData}
-                  className="p-2 bg-[#13151B] border border-[#232733] text-[#8A8F9E] hover:text-white"
-                  title="Recargar estado"
-                >
-                  <RefreshCw className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleStaffLogout}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-red-950/40 border border-red-500/40 text-red-200 text-xs font-bold hover:bg-red-900/60 transition-all"
-                  title="Cerrar Sesión del Staff"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Salir</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="mb-4">
-              <h2 className="font-display text-4xl font-bold text-white tracking-wide">
-                TERMINAL DE ATENCIÓN DE SILLONES · EL CARTEL
-              </h2>
-              <p className="text-xs text-[#8A8F9E]">
-                Control táctil de clientes en espera, llamado a sillón y tiempos en vivo.
-              </p>
-            </div>
-
-            <BarberTerminalView
-              queueStatus={queueStatus}
-              onRefresh={loadData}
-            />
-          </div>
-        )}
-      </main>
-
-      {/* Footer oficial de EL CARTEL */}
-      <Footer />
+          {/* Footer oficial de EL CARTEL */}
+          <Footer />
+        </>
+      ) : (
+        /* Panel Administrativo & Staff con Menú Lateral Modular */
+        <main className="flex-1 w-full">
+          <AdminDashboard
+            queueStatus={queueStatus}
+            barbers={barbers}
+            services={services}
+            onRefresh={loadData}
+            onExitToClient={() => setCurrentMode('client')}
+            onLogout={handleStaffLogout}
+          />
+        </main>
+      )}
 
       {/* Modal para solicitar turno / cita */}
       <TakeTicketModal
